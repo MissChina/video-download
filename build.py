@@ -52,9 +52,9 @@ def build_executable():
     """构建可执行文件"""
     print(f"🚀 开始构建 {PROJECT_NAME} v{VERSION}")
     
-    # 构建命令
+    # 构建命令 - 使用python -m调用pyinstaller
     cmd = [
-        'pyinstaller',
+        sys.executable, '-m', 'PyInstaller',
         '--onefile',           # 打包为单个文件
         '--windowed',          # 不显示控制台窗口
         '--clean',             # 清理临时文件
