@@ -135,59 +135,94 @@ class SettingsPanel(ttk.Frame):
         
         ttk.Label(download_section, text="📥 下载设置", font=get_font('subtitle')).pack(anchor='w', pady=(0, 8))
         
-        # 默认线程数
+        # 默认线程数 - 只使用外部按钮控制
         thread_frame = ttk.Frame(download_section)
         thread_frame.pack(fill='x', padx=10, pady=3)
         
         ttk.Label(thread_frame, text="并发线程:", font=get_font('default')).pack(side='left')
         
+        # 线程控制组合
+        workers_control = ttk.Frame(thread_frame)
+        workers_control.pack(side='left', padx=(10, 10))
+        
+        # 减少按钮
+        ttk.Button(workers_control, text='－', style='Counter.TButton', 
+                  command=lambda: self.default_workers.set(max(1, self.default_workers.get()-1))).pack(side='left')
+        
+        # 数值显示框（只读）
         self.default_workers = tk.IntVar(value=16)
-        ttk.Spinbox(
-            thread_frame,
-            from_=1,
-            to=64,
+        workers_entry = ttk.Entry(
+            workers_control,
             textvariable=self.default_workers,
-            width=8,
-            style='Modern.TSpinbox'
-        ).pack(side='left', padx=(10, 10))
+            width=6,
+            state='readonly',
+            justify='center'
+        )
+        workers_entry.pack(side='left', padx=(2, 2))
         
-        ttk.Label(thread_frame, text="(推荐: 8-32)", font=get_font('caption'), foreground='#6c757d').pack(side='left')
+        # 增加按钮
+        ttk.Button(workers_control, text='＋', style='Counter.TButton', 
+                  command=lambda: self.default_workers.set(min(64, self.default_workers.get()+1))).pack(side='left')
         
-        # 超时设置
+        ttk.Label(thread_frame, text="(推荐: 8-32)", font=get_font('caption'), foreground='#6c757d').pack(side='left', padx=(10, 0))
+        
+        # 超时设置 - 只使用外部按钮控制
         timeout_frame = ttk.Frame(download_section)
         timeout_frame.pack(fill='x', padx=10, pady=3)
-        
         ttk.Label(timeout_frame, text="连接超时:", font=get_font('default')).pack(side='left')
         
+        # 超时控制组合
+        timeout_control = ttk.Frame(timeout_frame)
+        timeout_control.pack(side='left', padx=(10, 10))
+        
+        # 减少按钮
+        ttk.Button(timeout_control, text='－', style='Counter.TButton', 
+                  command=lambda: self.timeout_var.set(max(5, self.timeout_var.get()-1))).pack(side='left')
+        
+        # 数值显示框（只读）
         self.timeout_var = tk.IntVar(value=30)
-        ttk.Spinbox(
-            timeout_frame,
-            from_=5,
-            to=300,
+        timeout_entry = ttk.Entry(
+            timeout_control,
             textvariable=self.timeout_var,
-            width=8,
-            style='Modern.TSpinbox'
-        ).pack(side='left', padx=(10, 10))
+            width=6,
+            state='readonly',
+            justify='center'
+        )
+        timeout_entry.pack(side='left', padx=(2, 2))
+        
+        # 增加按钮
+        ttk.Button(timeout_control, text='＋', style='Counter.TButton', 
+                  command=lambda: self.timeout_var.set(min(300, self.timeout_var.get()+1))).pack(side='left')
         
         ttk.Label(timeout_frame, text="秒", font=get_font('caption'), foreground='#6c757d').pack(side='left')
         
-        # 重试次数
+        # 重试次数 - 只使用外部按钮控制
         retry_frame = ttk.Frame(download_section)
         retry_frame.pack(fill='x', padx=10, pady=3)
-        
         ttk.Label(retry_frame, text="重试次数:", font=get_font('default')).pack(side='left')
         
-        self.retry_var = tk.IntVar(value=3)
-        ttk.Spinbox(
-            retry_frame,
-            from_=0,
-            to=10,
-            textvariable=self.retry_var,
-            width=8,
-            style='Modern.TSpinbox'
-        ).pack(side='left', padx=(10, 10))
+        # 重试控制组合
+        retry_control = ttk.Frame(retry_frame)
+        retry_control.pack(side='left', padx=(10, 10))
         
-        ttk.Label(retry_frame, text="次", font=get_font('caption'), foreground='#6c757d').pack(side='left')
+        # 减少按钮
+        ttk.Button(retry_control, text='－', style='Counter.TButton', 
+                  command=lambda: self.retry_var.set(max(0, self.retry_var.get()-1))).pack(side='left')
+        
+        # 数值显示框（只读）
+        self.retry_var = tk.IntVar(value=3)
+        retry_entry = ttk.Entry(
+            retry_control,
+            textvariable=self.retry_var,
+            width=6,
+            state='readonly',
+            justify='center'
+        )
+        retry_entry.pack(side='left', padx=(2, 2))
+        
+        # 增加按钮
+        ttk.Button(retry_control, text='＋', style='Counter.TButton', 
+                  command=lambda: self.retry_var.set(min(10, self.retry_var.get()+1))).pack(side='left')
         
         # 分隔线
         ttk.Separator(settings_inner, orient='horizontal').pack(fill='x', pady=15)

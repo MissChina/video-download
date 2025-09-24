@@ -14,26 +14,63 @@ class FFmpegManager:
     def __init__(self) -> None:
         self._cached: Optional[str] = None
         self._downloading = False
+        self._config_file = self._get_config_file_path()
+        
+    def _get_config_file_path(self) -> str:
+        """获取配置文件路径"""
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        config_dir = os.path.join(project_root, 'config')
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, 'ffmpeg_path.txt')
+    
+    def _save_ffmpeg_path(self, path: str) -> None:
+        """保存FFmpeg路径到配置文件"""
+        try:
+            with open(self._config_file, 'w', encoding='utf-8') as f:
+                f.write(path)
+        except Exception:
+            pass  # 忽略保存错误
+    
+    def _load_ffmpeg_path(self) -> Optional[str]:
+        """从配置文件加载FFmpeg路径"""
+        try:
+            if os.path.isfile(self._config_file):
+                with open(self._config_file, 'r', encoding='utf-8') as f:
+                    path = f.read().strip()
+                    if path and os.path.isfile(path):
+                        return path
+        except Exception:
+            pass
+        return None
         
     def find_ffmpeg(self) -> Optional[str]:
         """查找系统中的 FFmpeg"""
+        # 1. 检查缓存
         if self._cached and os.path.isfile(self._cached):
             return self._cached
 
-        # 1. 环境变量 PATH
-        ff = shutil.which('ffmpeg')
-        if ff:
-            self._cached = ff
-            return ff
+        # 2. 从配置文件加载
+        saved_path = self._load_ffmpeg_path()
+        if saved_path:
+            self._cached = saved_path
+            return saved_path
 
-        # 2. 项目本地目录
+        # 3. 项目本地目录（优先检查）
         local_ffmpeg = os.path.join(os.path.dirname(__file__), '..', '..', 'ffmpeg', 'ffmpeg.exe')
         local_ffmpeg = os.path.abspath(local_ffmpeg)
         if os.path.isfile(local_ffmpeg):
             self._cached = local_ffmpeg
+            self._save_ffmpeg_path(local_ffmpeg)
             return local_ffmpeg
 
-        # 3. 常见 Windows 路径
+        # 4. 环境变量 PATH
+        ff = shutil.which('ffmpeg')
+        if ff:
+            self._cached = ff
+            self._save_ffmpeg_path(ff)
+            return ff
+
+        # 5. 常见 Windows 路径
         candidates = [
             r"C:\ffmpeg\bin\ffmpeg.exe",
             r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
@@ -42,6 +79,7 @@ class FFmpegManager:
         for c in candidates:
             if os.path.isfile(c):
                 self._cached = c
+                self._save_ffmpeg_path(c)
                 return c
 
         return None
@@ -169,6 +207,7 @@ class FFmpegManager:
             ffmpeg_exe = os.path.join(ffmpeg_dir, 'ffmpeg.exe')
             if os.path.isfile(ffmpeg_exe):
                 self._cached = ffmpeg_exe
+                self._save_ffmpeg_path(ffmpeg_exe)  # 保存路径到配置文件
                 if progress_callback:
                     progress_callback("✅ FFmpeg 下载安装成功!")
                 return True

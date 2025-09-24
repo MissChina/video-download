@@ -61,7 +61,7 @@ class M3U8Downloader:
         self.log(f"开始解析 M3U8: {m3u8_url}")
         
         try:
-            headers = self.session.headers.copy()
+            headers = dict(self.session.headers)
             headers['Referer'] = m3u8_url  # 添加 Referer 防盗链
             
             response = self.session.get(m3u8_url, timeout=15, headers=headers)
@@ -229,72 +229,180 @@ class M3U8Downloader:
 
     # ---- 开始下载 ----
     def start(self, m3u8_url: str, output_file: str, temp_dir: Optional[str] = None, max_workers: int = 16, progress_callback: Optional[Callable[[int, str], None]] = None) -> bool:
+        """开始下载流程，增强错误处理和用户反馈"""
         if self.is_running:
             self.log('已有任务在进行')
             return False
+        
         self.is_running = True
         self.is_canceled = False
         self.downloaded_segments = 0
         self.output_file = output_file
+        
+        try:
+            # 验证输入参数
+            if not m3u8_url or not m3u8_url.strip():
+                raise ValueError("M3U8 URL 不能为空")
+            
+            if not output_file or not output_file.strip():
+                raise ValueError("输出文件路径不能为空")
+            
+            # 目录准备
+            out_dir = os.path.dirname(os.path.abspath(output_file))
+            ensure_dir_exists(out_dir)
+            
+            if temp_dir:
+                self.temp_dir = temp_dir
+                ensure_dir_exists(self.temp_dir)
+            else:
+                name = os.path.splitext(os.path.basename(output_file))[0]
+                self.temp_dir = os.path.join(out_dir, f"temp_{sanitize_filename(name)}")
+                ensure_dir_exists(self.temp_dir)
 
-        # 目录
-        out_dir = os.path.dirname(os.path.abspath(output_file))
-        ensure_dir_exists(out_dir)
-        if temp_dir:
-            self.temp_dir = temp_dir
-            ensure_dir_exists(self.temp_dir)
-        else:
-            name = os.path.splitext(os.path.basename(output_file))[0]
-            self.temp_dir = os.path.join(out_dir, f"temp_{sanitize_filename(name)}")
-            ensure_dir_exists(self.temp_dir)
-
-        if progress_callback:
-            progress_callback(0, '解析 M3U8...')
-        info = self.parse_m3u8(m3u8_url)
-        segments = info['segments']
-        if not segments:
-            self.log('未找到片段')
-            return False
-
-        if progress_callback:
-            progress_callback(5, f"开始下载 {self.total_segments} 个片段")
-        seg_files: List[str] = []
-        futures = []
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            for i, seg in enumerate(segments):
-                if self.is_canceled:
-                    break
-                p = os.path.join(self.temp_dir, f"segment_{i:05d}.ts")
-                seg_files.append(p)
-                futures.append(pool.submit(self._download_one, seg, p))
-            for ft in futures:
-                if ft.result():
-                    self.downloaded_segments += 1
-                    if progress_callback and self.total_segments:
-                        progress = 5 + int(85 * self.downloaded_segments / self.total_segments)
-                        progress_callback(progress, f"下载 {self.downloaded_segments}/{self.total_segments}")
-
-        if self.downloaded_segments != self.total_segments:
-            self.log(f"部分失败: {self.downloaded_segments}/{self.total_segments}")
-            if self.downloaded_segments < max(3, int(self.total_segments * 0.9)):
-                self.is_running = False
+            # 解析M3U8
+            if progress_callback:
+                progress_callback(0, '正在解析 M3U8 播放列表...')
+            
+            try:
+                info = self.parse_m3u8(m3u8_url)
+                segments = info['segments']
+                
+                if not segments:
+                    raise ValueError('M3U8 文件中未找到有效的媒体片段')
+                
+                self.log(f"解析完成，共找到 {len(segments)} 个片段")
+                
+            except Exception as e:
+                error_msg = f"M3U8 解析失败: {str(e)}"
+                self.log(error_msg)
+                if progress_callback:
+                    progress_callback(0, f"❌ {error_msg}")
                 return False
 
-        # 合并
-        if progress_callback:
-            progress_callback(95, '合并片段...')
-        ok = self.merger.merge(seg_files, output_file)
-        if not ok:
-            self.log('合并失败')
-            self.is_running = False
-            return False
+            # 开始下载片段
+            if progress_callback:
+                progress_callback(5, f"开始下载 {self.total_segments} 个视频片段...")
+            
+            seg_files: List[str] = []
+            successful_downloads = 0
+            failed_downloads = 0
+            
+            # 使用线程池下载
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = []
+                
+                # 提交所有下载任务
+                for i, seg in enumerate(segments):
+                    if self.is_canceled:
+                        break
+                    
+                    segment_path = os.path.join(self.temp_dir, f"segment_{i:05d}.ts")
+                    seg_files.append(segment_path)
+                    future = pool.submit(self._download_one, seg, segment_path)
+                    futures.append((future, i, segment_path))
+                
+                # 等待下载完成并更新进度
+                for future, index, path in futures:
+                    if self.is_canceled:
+                        break
+                    
+                    try:
+                        success = future.result(timeout=60)  # 设置超时
+                        if success:
+                            successful_downloads += 1
+                            self.downloaded_segments += 1
+                        else:
+                            failed_downloads += 1
+                            self.log(f"片段 {index} 下载失败: {os.path.basename(path)}")
+                        
+                        # 更新进度
+                        if progress_callback and self.total_segments > 0:
+                            completed = successful_downloads + failed_downloads
+                            progress = 5 + int(85 * completed / self.total_segments)
+                            status_msg = f"下载进度: {successful_downloads}/{self.total_segments} (失败: {failed_downloads})"
+                            progress_callback(progress, status_msg)
+                            
+                    except Exception as e:
+                        failed_downloads += 1
+                        self.log(f"片段 {index} 下载异常: {str(e)}")
 
-        if progress_callback:
-            progress_callback(100, '完成')
-        self.log('下载完成')
-        self.is_running = False
-        return True
+            # 检查下载结果
+            if self.is_canceled:
+                self.log("下载被用户取消")
+                if progress_callback:
+                    progress_callback(0, "下载已取消")
+                return False
+            
+            success_rate = successful_downloads / self.total_segments if self.total_segments > 0 else 0
+            min_success_rate = 0.9  # 至少90%成功率
+            
+            if success_rate < min_success_rate:
+                error_msg = f"下载失败率过高: {successful_downloads}/{self.total_segments} ({success_rate:.1%})"
+                self.log(error_msg)
+                if progress_callback:
+                    progress_callback(0, f"❌ {error_msg}")
+                return False
+            
+            if failed_downloads > 0:
+                self.log(f"警告: {failed_downloads} 个片段下载失败，但仍可继续合并")
+
+            # 合并片段
+            if progress_callback:
+                progress_callback(95, '正在合并视频片段...')
+            
+            try:
+                # 过滤出成功下载的文件
+                valid_files = [f for f in seg_files if os.path.exists(f) and os.path.getsize(f) > 0]
+                
+                if not valid_files:
+                    raise ValueError("没有有效的片段文件可供合并")
+                
+                self.log(f"开始合并 {len(valid_files)} 个有效片段")
+                merge_success = self.merger.merge(valid_files, output_file)
+                
+                if not merge_success:
+                    raise ValueError("视频合并过程失败")
+                
+                # 验证输出文件
+                if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+                    raise ValueError("合并后的文件无效或为空")
+                
+                self.log(f"合并完成，输出文件: {output_file}")
+                
+            except Exception as e:
+                error_msg = f"视频合并失败: {str(e)}"
+                self.log(error_msg)
+                if progress_callback:
+                    progress_callback(95, f"❌ {error_msg}")
+                return False
+
+            # 完成
+            if progress_callback:
+                progress_callback(100, '✅ 下载完成')
+            
+            self.log('🎉 下载任务完成')
+            return True
+            
+        except Exception as e:
+            error_msg = f"下载过程发生未预期错误: {str(e)}"
+            self.log(error_msg)
+            if progress_callback:
+                progress_callback(0, f"❌ {error_msg}")
+            return False
+            
+        finally:
+            self.is_running = False
+            
+            # 清理临时文件（可选）
+            if hasattr(self, 'temp_dir') and self.temp_dir and os.path.exists(self.temp_dir):
+                try:
+                    import shutil
+                    shutil.rmtree(self.temp_dir, ignore_errors=True)
+                    self.log("临时文件已清理")
+                except Exception as e:
+                    self.log(f"清理临时文件失败: {e}")
 
     def cancel(self) -> None:
+        """取消下载任务"""
         self.is_canceled = True
-        self.log('已请求取消')
+        self.log('🛑 用户请求取消下载')
