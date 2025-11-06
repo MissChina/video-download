@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M3U8 视频下载器</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- 主容器 -->
+    <div class="container">
+        <!-- 头部 -->
+        <header class="header">
+            <h1>🎬 M3U8 视频下载器</h1>
+            <span class="version">v2.6.0</span>
+        </header>
+
+        <!-- 标签页导航 -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="download">下载</button>
+            <button class="tab-btn" data-tab="logs">日志查看</button>
+            <button class="tab-btn" data-tab="settings">设置</button>
+            <button class="tab-btn" data-tab="about">关于</button>
+        </div>
+
+        <!-- 标签页内容 -->
+        <div class="tab-content">
+            <!-- 下载页面 -->
+            <div id="download" class="tab-panel active">
+                <div class="panel-content">
+                    <!-- 视频链接输入 -->
+                    <div class="section">
+                        <label class="section-label">视频链接</label>
+                        <div class="input-group">
+                            <input type="text" id="url-input" class="input-large" placeholder="请输入 M3U8 视频链接...">
+                        </div>
+                        <div class="button-row">
+                            <button class="btn btn-sm" id="paste-btn">📋 粘贴</button>
+                            <button class="btn btn-sm" id="clear-btn">🗑️ 清空</button>
+                        </div>
+                    </div>
+
+                    <!-- 下载设置 -->
+                    <div class="section">
+                        <label class="section-label">下载设置</label>
+                        <div class="settings-grid">
+                            <div class="setting-row">
+                                <label>保存路径:</label>
+                                <div class="input-with-btn">
+                                    <input type="text" id="save-path" class="input" value="" readonly>
+                                    <button class="btn btn-sm" id="browse-btn">浏览...</button>
+                                </div>
+                            </div>
+
+                            <div class="setting-row">
+                                <label>文件名:</label>
+                                <div class="name-format">
+                                    <input type="text" id="filename" class="input input-sm" value="video" placeholder="文件名">
+                                    <span class="label-text">格式:</span>
+                                    <select id="format" class="select">
+                                        <option value="mp4">MP4</option>
+                                        <option value="mkv">MKV</option>
+                                        <option value="ts">TS</option>
+                                        <option value="avi">AVI</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="setting-row">
+                                <label>线程数:</label>
+                                <div class="thread-control">
+                                    <button class="counter-btn" id="decrease-btn">－</button>
+                                    <input type="text" id="thread-count" class="thread-value" value="16" readonly>
+                                    <button class="counter-btn" id="increase-btn">＋</button>
+                                    <span class="hint-text">(推荐: 8-32)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- FFmpeg 状态 -->
+                    <div class="section">
+                        <label class="section-label">FFmpeg 状态</label>
+                        <div class="ffmpeg-status-box">
+                            <span id="ffmpeg-status-home" class="status-text">检测中...</span>
+                            <button class="btn btn-sm" id="check-ffmpeg-home">🔄 重新检测</button>
+                        </div>
+                        <p class="hint-text">FFmpeg 用于视频合并，建议安装以获得最佳效果</p>
+                    </div>
+
+                    <!-- 操作按钮 -->
+                    <div class="action-buttons">
+                        <button class="btn btn-primary btn-large" id="start-btn">开始下载</button>
+                        <button class="btn btn-danger btn-large" id="stop-btn" disabled>停止</button>
+                    </div>
+
+                    <!-- 进度显示 -->
+                    <div class="section">
+                        <label class="section-label">下载进度</label>
+                        <div class="progress-info">
+                            <span id="status-text">准备就绪</span>
+                            <span id="progress-percent">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- 日志 -->
+                    <div class="section">
+                        <div class="log-header">
+                            <label class="section-label">下载日志</label>
+                            <button class="btn btn-sm" id="clear-log-btn">清除日志</button>
+                        </div>
+                        <div class="log-box" id="log-box">
+                            <div class="log-line">[00:00:00] 欢迎使用 M3U8 视频下载器</div>
+                            <div class="log-line">[00:00:00] 请输入视频链接，然后点击开始下载</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 日志查看页面 -->
+            <div id="logs" class="tab-panel">
+                <div class="panel-content">
+                    <!-- 密码验证 -->
+                    <div class="section" id="password-section">
+                        <label class="section-label">🔒 密码验证</label>
+                        <div class="password-box">
+                            <input type="password" id="log-password" class="input" placeholder="请输入密码...">
+                            <button class="btn btn-primary" id="unlock-logs-btn">解锁</button>
+                        </div>
+                        <p class="hint-text">提示：查看日志需要密码验证</p>
+                    </div>
+
+                    <!-- 日志内容区域（初始隐藏） -->
+                    <div id="logs-content" style="display: none;">
+                        <!-- 日志类型选择 -->
+                        <div class="section">
+                            <label class="section-label">日志类型</label>
+                            <div class="button-row">
+                                <button class="btn btn-sm log-type-btn active" data-log-type="runtime">运行日志</button>
+                                <button class="btn btn-sm log-type-btn" data-log-type="download">下载记录</button>
+                                <button class="btn btn-sm log-type-btn" data-log-type="error">错误日志</button>
+                            </div>
+                        </div>
+
+                        <!-- 日志操作按钮 -->
+                        <div class="section">
+                            <div class="button-row">
+                                <button class="btn btn-primary" id="refresh-logs-btn">🔄 刷新日志</button>
+                                <button class="btn btn-sm" id="open-log-dir-btn">📁 打开日志目录</button>
+                            </div>
+                        </div>
+
+                        <!-- 日志显示区域 -->
+                        <div class="section">
+                            <label class="section-label" id="log-type-label">运行日志</label>
+                            <div class="log-viewer" id="log-viewer">
+                                <pre id="log-content">加载中...</pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 设置页面 -->
+            <div id="settings" class="tab-panel">
+                <div class="panel-content">
+                    <!-- FFmpeg设置 -->
+                    <div class="section">
+                        <label class="section-label">FFmpeg 工具</label>
+                        <div class="ffmpeg-status">
+                            <span id="ffmpeg-status-text">检测中...</span>
+                        </div>
+                        <div class="button-row">
+                            <button class="btn btn-primary" id="install-ffmpeg-btn">一键安装</button>
+                            <button class="btn btn-sm" id="check-ffmpeg-btn">重新检测</button>
+                        </div>
+                        <div class="install-progress" id="install-progress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill progress-animated"></div>
+                            </div>
+                            <span class="install-status" id="install-status-text"></span>
+                        </div>
+                    </div>
+
+                    <!-- 下载参数 -->
+                    <div class="section">
+                        <label class="section-label">下载参数</label>
+                        <div class="settings-grid">
+                            <div class="setting-row">
+                                <label>连接超时:</label>
+                                <div class="input-with-unit">
+                                    <input type="number" id="timeout" class="input input-sm" value="30" min="5" max="300">
+                                    <span>秒</span>
+                                </div>
+                            </div>
+                            <div class="setting-row">
+                                <label>重试次数:</label>
+                                <div class="input-with-unit">
+                                    <input type="number" id="retry" class="input input-sm" value="3" min="0" max="10">
+                                    <span>次</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 保存按钮 -->
+                    <div class="section">
+                        <button class="btn btn-success btn-large" id="save-settings-btn">💾 保存设置</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 关于页面 -->
+            <div id="about" class="tab-panel">
+                <div class="panel-content about-content">
+                    <div class="about-header">
+                        <h2>🎬 M3U8 视频下载器</h2>
+                        <p class="version-text">Version 2.6.0</p>
+                        <p class="description">专业的HLS视频流下载工具</p>
+                    </div>
+
+                    <div class="about-section">
+                        <h3>核心功能</h3>
+                        <ul class="feature-list">
+                            <li>• 支持 M3U8/HLS 视频流下载</li>
+                            <li>• AES-128 加密自动解密</li>
+                            <li>• 多线程并发下载 (最高64线程)</li>
+                            <li>• 智能重试和错误恢复</li>
+                            <li>• 多种格式输出 (MP4/MKV/TS/AVI)</li>
+                        </ul>
+                    </div>
+
+                    <div class="about-section">
+                        <h3>技术规格</h3>
+                        <div class="tech-info">
+                            <div class="tech-row">
+                                <span class="tech-label">开发技术:</span>
+                                <span class="tech-value">Electron + Node.js</span>
+                            </div>
+                            <div class="tech-row">
+                                <span class="tech-label">界面技术:</span>
+                                <span class="tech-value">HTML + CSS + JavaScript</span>
+                            </div>
+                            <div class="tech-row">
+                                <span class="tech-label">视频处理:</span>
+                                <span class="tech-value">FFmpeg</span>
+                            </div>
+                            <div class="tech-row">
+                                <span class="tech-label">网络请求:</span>
+                                <span class="tech-value">Axios</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="about-footer">
+                        <p>© 2025 M3U8 Video Downloader</p>
+                        <p>开源项目 • 仅供学习使用</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部状态栏 -->
+        <footer class="footer">
+            <span id="footer-status">就绪</span>
+            <span class="footer-right">© 2025</span>
+        </footer>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
