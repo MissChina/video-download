@@ -2,16 +2,12 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const logger = require('./logger');
-const FFmpegInstaller = require('./ffmpeg-installer');
 
 // 禁用GPU加速，提高稳定性
 app.disableHardwareAcceleration();
 
 // 移除默认菜单栏
 Menu.setApplicationMenu(null);
-
-// 创建FFmpeg安装器实例
-const ffmpegInstaller = new FFmpegInstaller();
 
 let mainWindow;
 
@@ -153,45 +149,6 @@ ipcMain.handle('open-log-dir', async () => {
 
 // 验证密码
 ipcMain.handle('verify-log-password', (event, password) => {
-  const correctPassword = '2222';
+  const correctPassword = '050213';
   return password === correctPassword;
-});
-
-// 检查FFmpeg是否安装
-ipcMain.handle('check-ffmpeg', async () => {
-  try {
-    const result = await ffmpegInstaller.checkInstalled();
-    if (result.installed) {
-      return { installed: true, message: 'FFmpeg 已安装', path: result.path };
-    } else {
-      return { installed: false, message: 'FFmpeg 未安装' };
-    }
-  } catch (error) {
-    logger.error('检查FFmpeg失败', error);
-    return { installed: false, message: 'FFmpeg 未安装' };
-  }
-});
-
-// 安装FFmpeg
-ipcMain.handle('install-ffmpeg', async (event) => {
-  try {
-    const result = await ffmpegInstaller.install((progress) => {
-      // 向渲染进程发送进度更新
-      event.sender.send('ffmpeg-install-progress', progress);
-    });
-
-    return { success: true, ...result };
-  } catch (error) {
-    logger.error('安装FFmpeg失败', error);
-    return { success: false, message: error.message };
-  }
-});
-
-// 获取FFmpeg路径
-ipcMain.handle('get-ffmpeg-path', () => {
-  try {
-    return ffmpegInstaller.getFFmpegPath();
-  } catch (error) {
-    return null;
-  }
 });

@@ -12,7 +12,7 @@
         <!-- 头部 -->
         <header class="header">
             <h1>🎬 M3U8 视频下载器</h1>
-            <span class="version">v2.6.0</span>
+            <span class="version">v6.0.1</span>
         </header>
 
         <!-- 标签页导航 -->
@@ -56,13 +56,11 @@
                                 <label>文件名:</label>
                                 <div class="name-format">
                                     <input type="text" id="filename" class="input input-sm" value="video" placeholder="文件名">
-                                    <span class="label-text">格式:</span>
-                                    <select id="format" class="select">
-                                        <option value="mp4">MP4</option>
-                                        <option value="mkv">MKV</option>
-                                        <option value="ts">TS</option>
-                                        <option value="avi">AVI</option>
+                                    <span class="label-text">格式: <strong>MP4</strong></span>
+                                    <select id="format" class="select" disabled style="display: none;">
+                                        <option value="mp4" selected>MP4 (自动)</option>
                                     </select>
+                                    <span class="hint-text" style="font-size: 11px; color: #666;">(自动转换为MP4格式)</span>
                                 </div>
                             </div>
 
@@ -76,16 +74,6 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- FFmpeg 状态 -->
-                    <div class="section">
-                        <label class="section-label">FFmpeg 状态</label>
-                        <div class="ffmpeg-status-box">
-                            <span id="ffmpeg-status-home" class="status-text">检测中...</span>
-                            <button class="btn btn-sm" id="check-ffmpeg-home">🔄 重新检测</button>
-                        </div>
-                        <p class="hint-text">FFmpeg 用于视频合并，建议安装以获得最佳效果</p>
                     </div>
 
                     <!-- 操作按钮 -->
@@ -167,24 +155,6 @@
             <!-- 设置页面 -->
             <div id="settings" class="tab-panel">
                 <div class="panel-content">
-                    <!-- FFmpeg设置 -->
-                    <div class="section">
-                        <label class="section-label">FFmpeg 工具</label>
-                        <div class="ffmpeg-status">
-                            <span id="ffmpeg-status-text">检测中...</span>
-                        </div>
-                        <div class="button-row">
-                            <button class="btn btn-primary" id="install-ffmpeg-btn">一键安装</button>
-                            <button class="btn btn-sm" id="check-ffmpeg-btn">重新检测</button>
-                        </div>
-                        <div class="install-progress" id="install-progress" style="display: none;">
-                            <div class="progress-bar">
-                                <div class="progress-fill progress-animated"></div>
-                            </div>
-                            <span class="install-status" id="install-status-text"></span>
-                        </div>
-                    </div>
-
                     <!-- 下载参数 -->
                     <div class="section">
                         <label class="section-label">下载参数</label>
@@ -218,8 +188,8 @@
                 <div class="panel-content about-content">
                     <div class="about-header">
                         <h2>🎬 M3U8 视频下载器</h2>
-                        <p class="version-text">Version 2.6.0</p>
-                        <p class="description">专业的HLS视频流下载工具</p>
+                        <p class="version-text">Windows Version 6.0.1</p>
+                        <p class="description">跨平台HLS视频流下载工具 - 内置 FFmpeg.wasm - 自动MP4转换</p>
                     </div>
 
                     <div class="about-section">
@@ -227,9 +197,11 @@
                         <ul class="feature-list">
                             <li>• 支持 M3U8/HLS 视频流下载</li>
                             <li>• AES-128 加密自动解密</li>
-                            <li>• 多线程并发下载 (最高64线程)</li>
+                            <li>• 多线程并发下载 (最高32线程)</li>
                             <li>• 智能重试和错误恢复</li>
-                            <li>• 多种格式输出 (MP4/MKV/TS/AVI)</li>
+                            <li>• 自动转换为MP4格式</li>
+                            <li>• 跨平台支持 (Windows/Android)</li>
+                            <li>• 内置 FFmpeg.wasm，无需额外安装</li>
                         </ul>
                     </div>
 
@@ -246,11 +218,15 @@
                             </div>
                             <div class="tech-row">
                                 <span class="tech-label">视频处理:</span>
-                                <span class="tech-value">FFmpeg</span>
+                                <span class="tech-value">FFmpeg.wasm (WebAssembly)</span>
                             </div>
                             <div class="tech-row">
                                 <span class="tech-label">网络请求:</span>
                                 <span class="tech-value">Axios</span>
+                            </div>
+                            <div class="tech-row">
+                                <span class="tech-label">支持平台:</span>
+                                <span class="tech-value">Windows / Linux / macOS</span>
                             </div>
                         </div>
                     </div>

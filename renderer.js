@@ -64,16 +64,7 @@ function initElements() {
         logBox: document.getElementById('log-box'),
         clearLogBtn: document.getElementById('clear-log-btn'),
 
-        // FFmpeg状态（首页）
-        ffmpegStatusHome: document.getElementById('ffmpeg-status-home'),
-        checkFfmpegHomeBtn: document.getElementById('check-ffmpeg-home'),
-
         // 设置页面
-        ffmpegStatusText: document.getElementById('ffmpeg-status-text'),
-        installFfmpegBtn: document.getElementById('install-ffmpeg-btn'),
-        checkFfmpegBtn: document.getElementById('check-ffmpeg-btn'),
-        installProgress: document.getElementById('install-progress'),
-        installStatusText: document.getElementById('install-status-text'),
         timeoutInput: document.getElementById('timeout'),
         retryInput: document.getElementById('retry'),
         saveSettingsBtn: document.getElementById('save-settings-btn'),
@@ -136,12 +127,7 @@ function init() {
         elements.clearLogBtn.addEventListener('click', () => safeCall(clearLog));
 
         // 设置页面事件
-        elements.checkFfmpegBtn.addEventListener('click', () => safeCall(checkFFmpeg));
-        elements.installFfmpegBtn.addEventListener('click', () => safeCall(installFFmpeg));
         elements.saveSettingsBtn.addEventListener('click', () => safeCall(saveSettings));
-
-        // 首页FFmpeg检测
-        elements.checkFfmpegHomeBtn.addEventListener('click', () => safeCall(checkFFmpegHome));
 
         // 日志查看页面事件
         elements.unlockLogsBtn.addEventListener('click', () => safeCall(unlockLogs));
@@ -167,11 +153,8 @@ function init() {
             }
         });
 
-        // 初始化检查FFmpeg
-        checkFFmpeg();
-        checkFFmpegHome();
-
-        addLog('欢迎使用 M3U8 视频下载器');
+        addLog('欢迎使用 M3U8 视频下载器 v6.0.1');
+        addLog('自动MP4转换 - 内置 FFmpeg.wasm');
         addLog('请输入视频链接，然后点击开始下载');
 
     } catch (error) {
@@ -307,7 +290,7 @@ async function startDownload() {
 
         const savePath = elements.savePathInput.value;
         const filename = elements.filenameInput.value || 'video';
-        const format = elements.formatSelect.value;
+        const format = 'mp4'; // v6.0.1: 自动转换为MP4格式
         const threads = threadCount;
         const timeout = parseInt(elements.timeoutInput.value) * 1000;
         const retry = parseInt(elements.retryInput.value);
@@ -385,104 +368,6 @@ function stopDownload() {
     elements.stopBtn.disabled = true;
     updateProgress(0, '已停止');
     addLog('⏹ 下载已停止');
-}
-
-// 检查FFmpeg（首页）
-async function checkFFmpegHome() {
-    try {
-        elements.ffmpegStatusHome.textContent = '检测中...';
-        elements.ffmpegStatusHome.className = 'status-text checking';
-
-        const result = await ipcRenderer.invoke('check-ffmpeg');
-
-        if (result.installed) {
-            elements.ffmpegStatusHome.textContent = '✅ ' + result.message;
-            elements.ffmpegStatusHome.className = 'status-text success';
-        } else {
-            elements.ffmpegStatusHome.textContent = '⚠️ ' + result.message;
-            elements.ffmpegStatusHome.className = 'status-text error';
-        }
-    } catch (error) {
-        logger.error('检测FFmpeg失败（首页）', error);
-        elements.ffmpegStatusHome.textContent = '❌ 检测失败';
-        elements.ffmpegStatusHome.className = 'status-text error';
-    }
-}
-
-// 检查FFmpeg（设置页）
-async function checkFFmpeg() {
-    try {
-        elements.ffmpegStatusText.textContent = '检测中...';
-
-        const result = await ipcRenderer.invoke('check-ffmpeg');
-
-        if (result.installed) {
-            elements.ffmpegStatusText.textContent = '✓ ' + result.message;
-            elements.installFfmpegBtn.disabled = true;
-            elements.installFfmpegBtn.textContent = '已安装';
-        } else {
-            elements.ffmpegStatusText.textContent = '✗ ' + result.message;
-            elements.installFfmpegBtn.disabled = false;
-            elements.installFfmpegBtn.textContent = '一键安装';
-        }
-    } catch (error) {
-        logger.error('检测FFmpeg失败', error);
-        elements.ffmpegStatusText.textContent = '✗ 检测失败';
-    }
-}
-
-// 安装FFmpeg（真实实现）
-async function installFFmpeg() {
-    try {
-        elements.installProgress.style.display = 'block';
-        elements.installStatusText.textContent = '准备安装...';
-        elements.installFfmpegBtn.disabled = true;
-
-        // 监听安装进度
-        ipcRenderer.on('ffmpeg-install-progress', (event, progress) => {
-            if (progress.percent !== undefined) {
-                elements.installStatusText.textContent = `${progress.message} ${progress.percent}%`;
-            } else {
-                elements.installStatusText.textContent = progress.message;
-            }
-
-            // 同时在日志中显示
-            if (progress.stage === 'download' || progress.stage === 'extract') {
-                addLog(`📦 ${progress.message}`);
-            }
-        });
-
-        addLog('🔽 开始安装 FFmpeg...');
-
-        // 调用主进程进行安装
-        const result = await ipcRenderer.invoke('install-ffmpeg');
-
-        // 移除进度监听器
-        ipcRenderer.removeAllListeners('ffmpeg-install-progress');
-
-        if (result.success) {
-            elements.installStatusText.textContent = '✅ 安装成功！';
-            elements.installProgress.style.display = 'none';
-            addLog('✅ FFmpeg 安装成功');
-
-            // 重新检测
-            await checkFFmpeg();
-            await checkFFmpegHome();
-        } else {
-            elements.installStatusText.textContent = `❌ ${result.message}`;
-            elements.installProgress.style.display = 'none';
-            elements.installFfmpegBtn.disabled = false;
-            addLog(`❌ 安装失败: ${result.message}`);
-            logger.error('FFmpeg安装失败', new Error(result.message));
-        }
-
-    } catch (error) {
-        elements.installStatusText.textContent = '❌ 安装失败';
-        elements.installProgress.style.display = 'none';
-        elements.installFfmpegBtn.disabled = false;
-        addLog(`❌ 安装错误: ${error.message}`);
-        logger.error('FFmpeg安装异常', error);
-    }
 }
 
 // 保存设置

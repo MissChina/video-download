@@ -1,14 +1,22 @@
 {
   "name": "m3u8-downloader",
-  "version": "2.6.0",
-  "description": "M3U8视频下载器 - 无需环境，开箱即用",
+  "version": "6.0.1",
+  "description": "M3U8视频下载器 - 跨平台，开箱即用",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win --x64",
-    "build:dir": "electron-builder --win --x64 --dir"
+    "build:win": "electron-builder --win --x64",
+    "build:linux": "electron-builder --linux",
+    "build:mac": "electron-builder --mac",
+    "build": "electron-builder --win --linux --mac"
   },
-  "keywords": ["m3u8", "downloader", "video", "ffmpeg"],
+  "keywords": [
+    "m3u8",
+    "downloader",
+    "video",
+    "ffmpeg",
+    "cross-platform"
+  ],
   "author": "M3U8 Downloader",
   "license": "MIT",
   "devDependencies": {
@@ -16,7 +24,10 @@
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
-    "axios": "^1.6.2"
+    "axios": "^1.6.2",
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/util": "^0.12.1",
+    "@ffmpeg/core-mt": "^0.12.6"
   },
   "build": {
     "appId": "com.m3u8downloader.app",
@@ -29,7 +40,7 @@
       "renderer.js",
       "downloader.js",
       "logger.js",
-      "ffmpeg-installer.js",
+      "ffmpeg-worker.js",
       "index.html",
       "styles.css",
       "LICENSE",
@@ -46,19 +57,37 @@
     ],
     "compression": "maximum",
     "removePackageScripts": true,
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/@ffmpeg/core-mt/**/*"
+    ],
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": ["x64"]
-        },
-        {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
-      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+      "artifactName": "${productName}-${version}-Windows.${ext}",
       "requestedExecutionLevel": "asInvoker"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "artifactName": "${productName}-${version}-Linux.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.utilities",
+      "artifactName": "${productName}-${version}-macOS.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -69,9 +98,6 @@
       "createStartMenuShortcut": true,
       "shortcutName": "M3U8下载器",
       "language": "2052"
-    },
-    "portable": {
-      "artifactName": "${productName}-${version}-便携版.${ext}"
     }
   }
 }

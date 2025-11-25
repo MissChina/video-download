@@ -1,21 +1,25 @@
 const axios = require('axios');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
-const { promisify } = require('util');
 const logger = require('./logger');
 
-const execPromise = promisify(exec);
+/**
+ * M3U8 Downloader v6.0.1 - 完全重写版本
+ *
+ * 核心特性：
+ * 1. 全局失败检测 - 20个片段失败率>50%立即停止
+ * 2. 强制MP4输出 - 无论输入什么文件名，最终都是MP4
+ * 3. 简化日志 - 避免白屏
+ * 4. 异步日志写入 - 不阻塞主进程
+ */
 
-// 创建一个自定义的axios实例，模拟真实浏览器
+// Axios实例
 const browserAxios = axios.create({
-    // 不验证SSL证书，避免某些网站的证书问题
     httpsAgent: new (require('https').Agent)({
         rejectUnauthorized: false
     }),
-    // 自动处理重定向
     maxRedirects: 5,
-    // 支持gzip压缩
     decompress: true
 });
 
@@ -23,9 +27,20 @@ class M3U8Downloader {
     constructor() {
         this.isCanceled = false;
         this.progressCallback = null;
+
+        // 全局计数器
+        this.globalCompleted = 0;
+        this.globalFailed = 0;
+        this.failureDetails = [];
+
+        // 配置
+        this.BATCH_SIZE = 100;
+        this.MAX_MEMORY_SEGMENTS = 200;
     }
 
-    // 下载M3U8视频
+    /**
+     * 主下载方法
+     */
     async download(m3u8Url, outputFile, options = {}) {
         const {
             maxWorkers = 16,
@@ -36,446 +51,437 @@ class M3U8Downloader {
 
         const startTime = Date.now();
 
-        logger.info(`========== 开始新的下载任务 ==========`);
-        logger.info(`M3U8地址: ${m3u8Url}`);
-        logger.info(`输出文件: ${outputFile}`);
-        logger.info(`并发数: ${maxWorkers}, 超时: ${timeout}ms, 重试次数: ${retry}`);
+        // 🔥 关键：强制最终文件为MP4格式
+        const baseFileName = this.getBaseFileName(outputFile);
+        const outputDir = path.dirname(outputFile);
+        const tempTsFile = path.join(outputDir, `${baseFileName}.temp.ts`);
+        const finalMp4File = path.join(outputDir, `${baseFileName}.mp4`);
 
-        logger.runtime(`开始下载: ${outputFile}`);
-        logger.runtime(`M3U8地址: ${m3u8Url}`);
-        logger.runtime(`线程数: ${maxWorkers}, 超时: ${timeout}ms, 重试: ${retry}次`);
+        logger.info(`========== M3U8下载器 v6.0.1 ==========`);
+        logger.info(`输出文件: ${finalMp4File}`);
+        logger.runtime(`开始下载任务 → ${path.basename(finalMp4File)}`);
 
         this.isCanceled = false;
         this.progressCallback = progressCallback;
-
-        let tempDir = null;
+        this.globalCompleted = 0;
+        this.globalFailed = 0;
+        this.failureDetails = [];
 
         try {
-            // 1. 获取M3U8内容
-            this.updateProgress(5, '正在解析M3U8...');
-            logger.info('步骤1: 获取M3U8内容...');
-            logger.runtime('步骤1: 正在获取M3U8内容...');
+            // 步骤1: 获取M3U8
+            this.updateProgress(5, '获取M3U8...');
             const m3u8Content = await this.fetchM3U8(m3u8Url, timeout);
-            logger.info(`M3U8内容获取成功，大小: ${m3u8Content.length} 字节`);
-            logger.runtime(`M3U8内容获取成功，大小: ${m3u8Content.length} 字节`);
 
-            // 2. 解析M3U8获取片段列表
-            this.updateProgress(10, '正在解析视频片段...');
-            logger.info('步骤2: 解析M3U8文件...');
-            logger.runtime('步骤2: 正在解析M3U8文件...');
+            // 步骤2: 解析片段
+            this.updateProgress(10, '解析片段...');
             const segments = this.parseM3U8(m3u8Content, m3u8Url);
 
             if (segments.length === 0) {
-                logger.error('M3U8解析失败', new Error('未找到视频片段'));
                 throw new Error('未找到视频片段');
             }
 
-            this.updateProgress(15, `发现 ${segments.length} 个视频片段`);
-            logger.info(`解析成功，共发现 ${segments.length} 个视频片段`);
-            logger.runtime(`解析成功，共发现 ${segments.length} 个视频片段`);
+            logger.info(`共 ${segments.length} 个片段`);
+            this.updateProgress(15, `共${segments.length}片段`);
 
-            // 3. 创建临时目录
-            tempDir = path.join(path.dirname(outputFile), '.temp_' + Date.now());
-            await fs.mkdir(tempDir, { recursive: true });
-            logger.info(`临时目录创建成功: ${tempDir}`);
-            logger.runtime(`临时目录创建成功: ${tempDir}`);
+            // 步骤3: 下载TS片段
+            logger.runtime(`开始下载 ${segments.length} 个片段...`);
+            await this.downloadAllSegments(segments, tempTsFile, maxWorkers, timeout, retry);
 
-            // 4. 下载所有片段
-            this.updateProgress(20, '开始下载视频片段...');
-            logger.info(`步骤3: 开始下载视频片段 (并发数: ${maxWorkers})...`);
-            logger.runtime(`步骤3: 开始下载视频片段 (并发数: ${maxWorkers})...`);
-            const segmentStartTime = Date.now();
-            const downloadedFiles = await this.downloadSegments(
-                segments,
-                tempDir,
-                maxWorkers,
-                timeout,
-                retry
-            );
-            const downloadDuration = ((Date.now() - segmentStartTime) / 1000).toFixed(2);
-            logger.info(`片段下载完成，耗时: ${downloadDuration}秒，成功: ${downloadedFiles.length}/${segments.length}`);
-            logger.runtime(`片段下载完成，耗时: ${downloadDuration}秒，成功: ${downloadedFiles.length}/${segments.length}`);
+            // 步骤4: 转换为MP4
+            this.updateProgress(85, '转换MP4...');
+            logger.info(`转换: ${tempTsFile} → ${finalMp4File}`);
+            logger.runtime('正在转换为MP4格式...');
 
-            if (this.isCanceled) {
-                logger.warn('下载已被用户取消');
-                await this.cleanup(tempDir);
-                return false;
-            }
+            await this.convertToMp4(tempTsFile, finalMp4File);
 
-            if (downloadedFiles.length === 0) {
-                logger.error('下载片段失败', new Error('没有成功下载任何片段'));
-                throw new Error('没有成功下载任何片段');
-            }
+            // 删除临时文件
+            await fs.unlink(tempTsFile);
 
-            if (downloadedFiles.length < segments.length) {
-                logger.warn(`部分片段下载失败: ${downloadedFiles.length}/${segments.length}`);
-            }
+            this.updateProgress(100, '完成');
 
-            // 5. 合并片段
-            this.updateProgress(90, '正在合并视频...');
-            logger.info('步骤4: 合并视频片段...');
-            logger.runtime('步骤4: 正在合并视频片段...');
-            await this.mergeSegments(downloadedFiles, outputFile);
-            logger.info(`视频合并成功: ${outputFile}`);
-            logger.runtime(`视频合并成功: ${outputFile}`);
-
-            // 6. 清理临时文件
-            this.updateProgress(95, '正在清理临时文件...');
-            logger.info('步骤5: 清理临时文件...');
-            logger.runtime('步骤5: 正在清理临时文件...');
-            await this.cleanup(tempDir);
-            logger.info('临时文件清理完成');
-            logger.runtime('临时文件清理完成');
-
-            this.updateProgress(100, '下载完成');
-            logger.info(`========== 下载任务完成 ==========`);
-
-            // 记录下载成功日志
             const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-            const stats = await fs.stat(outputFile);
-            logger.runtime(`下载完成: ${outputFile}, 耗时: ${duration}秒, 大小: ${(stats.size / 1024 / 1024).toFixed(2)}MB`);
+            const stats = await fs.stat(finalMp4File);
+            const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
 
-            logger.download({
-                url: m3u8Url,
-                filename: path.basename(outputFile),
-                outputPath: outputFile,
-                status: '下载成功',
-                fileSize: stats.size,
-                duration: `${duration}秒`,
-                threadCount: maxWorkers
-            });
+            logger.info(`========== 下载完成 ==========`);
+            logger.info(`文件: ${finalMp4File}`);
+            logger.info(`大小: ${sizeMB} MB`);
+            logger.info(`耗时: ${duration} 秒`);
+            logger.runtime(`✅ 完成: ${path.basename(finalMp4File)} (${sizeMB}MB)`);
 
             return true;
 
         } catch (error) {
             logger.error('下载失败', error);
-
-            // 记录下载失败日志
-            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-            logger.runtime(`下载失败: ${outputFile}, 耗时: ${duration}秒, 错误: ${error.message}`);
-
-            logger.download({
-                url: m3u8Url,
-                filename: path.basename(outputFile),
-                outputPath: outputFile,
-                status: '下载失败',
-                duration: `${duration}秒`,
-                threadCount: maxWorkers,
-                error: error.message
-            });
+            logger.runtime(`❌ 失败: ${error.message}`);
 
             // 清理临时文件
-            if (tempDir) {
-                try {
-                    await this.cleanup(tempDir);
-                } catch (cleanupError) {
-                    logger.error('清理临时文件失败', cleanupError);
-                }
+            if (fsSync.existsSync(tempTsFile)) {
+                await fs.unlink(tempTsFile).catch(() => {});
             }
 
             throw error;
         }
     }
 
-    // 获取M3U8内容
+    /**
+     * 获取基础文件名（去掉扩展名）
+     */
+    getBaseFileName(filePath) {
+        const basename = path.basename(filePath);
+        // 去掉所有可能的扩展名
+        return basename.replace(/\.(ts|mp4|mkv|avi|flv)$/i, '').replace(/\.\w+$/, '');
+    }
+
+    /**
+     * 下载所有片段
+     */
+    async downloadAllSegments(segments, outputFile, maxWorkers, timeout, retry) {
+        const totalSegments = segments.length;
+        const useBatchMode = totalSegments > this.MAX_MEMORY_SEGMENTS;
+
+        // 确保目录存在
+        await fs.mkdir(path.dirname(outputFile), { recursive: true });
+
+        const writeStream = fsSync.createWriteStream(outputFile, { flags: 'w' });
+
+        try {
+            const referer = this.getReferer(segments[0].url);
+            const batchSize = useBatchMode ? this.BATCH_SIZE : totalSegments;
+
+            for (let batchStart = 0; batchStart < totalSegments; batchStart += batchSize) {
+                if (this.isCanceled) {
+                    throw new Error('用户取消');
+                }
+
+                const batchEnd = Math.min(batchStart + batchSize, totalSegments);
+                const currentBatch = segments.slice(batchStart, batchEnd);
+
+                const batchResults = await this.downloadBatchWithFailFast(
+                    currentBatch,
+                    maxWorkers,
+                    timeout,
+                    retry,
+                    referer,
+                    batchStart
+                );
+
+                // 写入文件
+                if (batchResults.length > 0) {
+                    const merged = Buffer.concat(batchResults);
+                    await new Promise((resolve, reject) => {
+                        writeStream.write(merged, (err) => err ? reject(err) : resolve());
+                    });
+                }
+            }
+
+            await new Promise(resolve => writeStream.end(resolve));
+
+            logger.info(`下载完成: ${this.globalCompleted}/${totalSegments}`);
+
+        } catch (error) {
+            writeStream.close();
+            if (fsSync.existsSync(outputFile)) {
+                await fs.unlink(outputFile);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * 下载批次（带快速失败）
+     */
+    async downloadBatchWithFailFast(segments, maxWorkers, timeout, retry, referer, globalOffset) {
+        const results = [];
+
+        for (let i = 0; i < segments.length; i += maxWorkers) {
+            if (this.isCanceled) break;
+
+            const batch = segments.slice(i, i + maxWorkers);
+            const promises = batch.map(seg => this.downloadSegment(seg, timeout, retry, referer));
+            const batchResults = await Promise.all(promises);
+
+            // 收集结果
+            for (let j = 0; j < batchResults.length; j++) {
+                const result = batchResults[j];
+                const segment = batch[j];
+
+                if (result.success) {
+                    results.push(result.data);
+                    this.globalCompleted++;
+                } else {
+                    this.globalFailed++;
+                    this.failureDetails.push({
+                        index: globalOffset + i + j,
+                        error: result.error
+                    });
+                }
+            }
+
+            // 更新进度
+            const total = this.globalCompleted + this.globalFailed;
+            const progress = 20 + Math.floor((this.globalCompleted / (total + segments.length - i - batch.length)) * 65);
+            this.updateProgress(progress, `${this.globalCompleted}/${total}`);
+
+            // 🔥 全局失败检测
+            if (total >= 20) {
+                const failureRate = (this.globalFailed / total) * 100;
+
+                if (failureRate > 50) {
+                    logger.error(`🚨 失败率过高: ${failureRate.toFixed(1)}% (${this.globalFailed}/${total})`);
+                    logger.error(`前3个失败:`);
+
+                    this.failureDetails.slice(0, 3).forEach(detail => {
+                        logger.error(`  片段 ${detail.index}: ${detail.error}`);
+                    });
+
+                    throw new Error(
+                        `失败率过高 (${failureRate.toFixed(1)}%)\n\n` +
+                        `可能原因:\n` +
+                        `1. 服务器拒绝请求 (403/401)\n` +
+                        `2. 链接已过期\n` +
+                        `3. 需要Cookie认证\n` +
+                        `4. 网络问题\n\n` +
+                        `请在浏览器中测试链接`
+                    );
+                }
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * 下载单个片段
+     */
+    async downloadSegment(segment, timeout, retry, referer) {
+        for (let attempt = 0; attempt < retry; attempt++) {
+            if (this.isCanceled) {
+                return { success: false, error: 'canceled' };
+            }
+
+            try {
+                const headers = this.getBrowserHeaders(referer);
+
+                const response = await browserAxios.get(segment.url, {
+                    headers,
+                    timeout,
+                    responseType: 'arraybuffer'
+                });
+
+                if (response.status !== 200) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                return {
+                    success: true,
+                    data: Buffer.from(response.data)
+                };
+
+            } catch (error) {
+                const errorMsg = this.getErrorMessage(error);
+
+                if (attempt < retry - 1) {
+                    // 只记录第一次重试
+                    if (attempt === 0) {
+                        logger.warn(`片段 ${segment.index}: ${errorMsg} - 重试`);
+                    }
+                    await this.sleep(1000);
+                } else {
+                    return { success: false, error: errorMsg };
+                }
+            }
+        }
+
+        return { success: false, error: 'max retries' };
+    }
+
+    /**
+     * 转换TS到MP4
+     */
+    async convertToMp4(inputTs, outputMp4) {
+        try {
+            const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+            const { toBlobURL } = await import('@ffmpeg/util');
+
+            const ffmpeg = new FFmpeg();
+
+            // 日志过滤（避免过多日志）
+            let logCount = 0;
+            ffmpeg.on('log', ({ message }) => {
+                if (message.includes('time=') && logCount++ % 10 === 0) {
+                    logger.info(`转换中...`);
+                }
+            });
+
+            logger.info('加载FFmpeg...');
+
+            const coreBasePath = path.join(__dirname, 'node_modules', '@ffmpeg', 'core-mt', 'dist', 'esm');
+            const coreURL = await toBlobURL(path.join(coreBasePath, 'ffmpeg-core.js'), 'text/javascript');
+            const wasmURL = await toBlobURL(path.join(coreBasePath, 'ffmpeg-core.wasm'), 'application/wasm');
+            const workerURL = await toBlobURL(path.join(coreBasePath, 'ffmpeg-core.worker.js'), 'text/javascript');
+
+            await ffmpeg.load({ coreURL, wasmURL, workerURL });
+
+            // 读取输入
+            const inputData = await fs.readFile(inputTs);
+            await ffmpeg.writeFile('input.ts', new Uint8Array(inputData));
+
+            // 转换
+            logger.info('执行转换...');
+            await ffmpeg.exec(['-i', 'input.ts', '-c', 'copy', '-movflags', '+faststart', 'output.mp4']);
+
+            // 读取输出
+            const outputData = await ffmpeg.readFile('output.mp4');
+
+            // 写入文件
+            await fs.writeFile(outputMp4, outputData);
+
+            logger.info(`MP4已保存: ${outputMp4}`);
+
+            // 清理
+            await ffmpeg.deleteFile('input.ts');
+            await ffmpeg.deleteFile('output.mp4');
+
+        } catch (error) {
+            logger.error('MP4转换失败', error);
+            throw new Error(`MP4转换失败: ${error.message}`);
+        }
+    }
+
+    /**
+     * 获取M3U8内容
+     */
     async fetchM3U8(url, timeout) {
         try {
-            // 解析URL
-            const urlObj = new URL(url);
-            const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+            const headers = this.getBrowserHeaders(this.getReferer(url));
 
-            // 完整的浏览器请求头，按Chrome的顺序
             const response = await browserAxios.get(url, {
+                headers,
                 timeout,
-                headers: {
-                    'Accept': '*/*',
-                    'Accept-Encoding': 'identity',  // 明确不要压缩（某些CDN要求）
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                    'Cache-Control': 'no-cache',
-                    'Connection': 'keep-alive',
-                    'Host': urlObj.host,
-                    'Pragma': 'no-cache',
-                    'Referer': baseUrl + '/',  // 设置为网站首页
-                    'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                    'Sec-Ch-Ua-Mobile': '?0',
-                    'Sec-Ch-Ua-Platform': '"Windows"',
-                    'Sec-Fetch-Dest': 'empty',
-                    'Sec-Fetch-Mode': 'cors',
-                    'Sec-Fetch-Site': 'same-origin',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                },
-                validateStatus: function (status) {
-                    return status >= 200 && status < 500; // 接受所有状态码，稍后处理
-                }
+                responseType: 'text'
             });
 
             if (response.status !== 200) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            if (!response.data || typeof response.data !== 'string') {
+                throw new Error('M3U8内容为空');
             }
 
             return response.data;
+
         } catch (error) {
-            const errorMsg = `无法获取M3U8: ${error.message}`;
-            logger.error(errorMsg, error);
-            throw new Error(errorMsg);
+            const errorMsg = this.getErrorMessage(error);
+            logger.error(`获取M3U8失败: ${errorMsg}`, error);
+            throw new Error(`获取M3U8失败: ${errorMsg}`);
         }
     }
 
-    // 解析M3U8
+    /**
+     * 解析M3U8
+     */
     parseM3U8(content, baseUrl) {
+        const lines = content.split('\n').map(l => l.trim()).filter(l => l);
+        const segments = [];
+        let index = 0;
+
+        for (const line of lines) {
+            if (line.startsWith('#')) continue;
+
+            if (line.endsWith('.ts') || line.includes('.ts?')) {
+                let url = line;
+
+                if (!url.startsWith('http')) {
+                    const baseUrlObj = new URL(baseUrl);
+                    if (url.startsWith('/')) {
+                        url = `${baseUrlObj.protocol}//${baseUrlObj.host}${url}`;
+                    } else {
+                        const basePath = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
+                        url = basePath + url;
+                    }
+                }
+
+                segments.push({ index: index++, url });
+            }
+        }
+
+        return segments;
+    }
+
+    /**
+     * 获取浏览器请求头
+     */
+    getBrowserHeaders(referer) {
+        return {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Pragma': 'no-cache',
+            'Referer': referer,
+            'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'cross-site'
+        };
+    }
+
+    /**
+     * 获取Referer
+     */
+    getReferer(url) {
         try {
-            const lines = content.split('\n').filter(line => line.trim());
-            const segments = [];
-            const baseUrlObj = new URL(baseUrl);
-            const basePath = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
-
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim();
-
-                // 跳过注释和空行
-                if (!line || line.startsWith('#')) {
-                    continue;
-                }
-
-                // 解析片段URL
-                let segmentUrl;
-                if (line.startsWith('http://') || line.startsWith('https://')) {
-                    segmentUrl = line;
-                } else if (line.startsWith('/')) {
-                    segmentUrl = `${baseUrlObj.protocol}//${baseUrlObj.host}${line}`;
-                } else {
-                    segmentUrl = basePath + line;
-                }
-
-                segments.push(segmentUrl);
-            }
-
-            return segments;
-        } catch (error) {
-            logger.error('M3U8解析失败', error);
-            throw new Error(`M3U8解析失败: ${error.message}`);
-        }
-    }
-
-    // 下载所有片段
-    async downloadSegments(segments, tempDir, maxWorkers, timeout, retry) {
-        const downloadedFiles = [];
-        const total = segments.length;
-        const progress = { completed: 0 }; // 使用对象来共享进度
-
-        // 创建下载任务队列
-        const queue = segments.map((url, index) => ({
-            url,
-            index,
-            outputPath: path.join(tempDir, `segment_${index.toString().padStart(6, '0')}.ts`)
-        }));
-
-        // 并发下载
-        const workers = [];
-        for (let i = 0; i < Math.min(maxWorkers, queue.length); i++) {
-            workers.push(this.downloadWorker(queue, downloadedFiles, total, progress, timeout, retry));
-        }
-
-        await Promise.all(workers);
-
-        return downloadedFiles.sort((a, b) => a.index - b.index).map(f => f.path);
-    }
-
-    // 下载工作线程
-    async downloadWorker(queue, downloadedFiles, total, progress, timeout, retry) {
-        while (queue.length > 0 && !this.isCanceled) {
-            const task = queue.shift();
-            if (!task) break;
-
-            let success = false;
-            let lastError = null;
-
-            for (let attempt = 0; attempt <= retry; attempt++) {
-                try {
-                    if (attempt > 0) {
-                        logger.info(`重试片段 ${task.index + 1}/${total} (第${attempt}次重试)`);
-                    }
-                    await this.downloadSegment(task.url, task.outputPath, timeout);
-                    downloadedFiles.push({ index: task.index, path: task.outputPath });
-                    progress.completed++;
-
-                    const percent = 20 + Math.floor((progress.completed / total) * 70);
-                    this.updateProgress(percent, `下载中... ${progress.completed}/${total}`);
-
-                    // 每10个片段记录一次进度
-                    if (progress.completed % 10 === 0 || progress.completed === total) {
-                        logger.info(`下载进度: ${progress.completed}/${total} (${((progress.completed/total)*100).toFixed(1)}%)`);
-                    }
-
-                    success = true;
-                    break;
-                } catch (error) {
-                    lastError = error;
-                    if (attempt < retry) {
-                        await this.sleep(1000 * (attempt + 1));
-                    }
-                }
-            }
-
-            if (!success) {
-                logger.error(`片段 ${task.index + 1}/${total} 下载失败 (URL: ${task.url.substring(0, 100)}...)`, lastError);
-            }
-        }
-    }
-
-    // 下载单个片段
-    async downloadSegment(url, outputPath, timeout) {
-        try {
-            // 解析URL
             const urlObj = new URL(url);
-            const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
-
-            // 使用完整的浏览器请求头
-            const response = await browserAxios.get(url, {
-                timeout,
-                responseType: 'arraybuffer',
-                headers: {
-                    'Accept': '*/*',
-                    'Accept-Encoding': 'identity',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                    'Cache-Control': 'no-cache',
-                    'Connection': 'keep-alive',
-                    'Host': urlObj.host,
-                    'Pragma': 'no-cache',
-                    'Range': 'bytes=0-',  // 支持断点续传
-                    'Referer': baseUrl + '/',
-                    'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                    'Sec-Ch-Ua-Mobile': '?0',
-                    'Sec-Ch-Ua-Platform': '"Windows"',
-                    'Sec-Fetch-Dest': 'video',  // 表明这是视频请求
-                    'Sec-Fetch-Mode': 'no-cors',
-                    'Sec-Fetch-Site': 'cross-site',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                },
-                validateStatus: function (status) {
-                    // 接受200和206（部分内容）
-                    return (status >= 200 && status < 300) || status === 206;
-                }
-            });
-
-            // 将 ArrayBuffer 转换为 Buffer
-            await fs.writeFile(outputPath, Buffer.from(response.data));
-        } catch (error) {
-            // 只在重试失败后记录错误
-            throw error;
+            return `${urlObj.protocol}//${urlObj.host}/`;
+        } catch {
+            return url;
         }
     }
 
-    // 合并片段
-    async mergeSegments(segmentFiles, outputFile) {
-        const listFile = outputFile + '.list.txt';
-
-        try {
-            // 创建文件列表
-            const fileList = segmentFiles.map(f => `file '${f}'`).join('\n');
-            await fs.writeFile(listFile, fileList);
-            logger.info(`创建FFmpeg文件列表: ${listFile} (${segmentFiles.length}个片段)`);
-
-            // 获取FFmpeg路径
-            let ffmpegPath = 'ffmpeg';
-            try {
-                const { ipcRenderer } = require('electron');
-                const customPath = await ipcRenderer.invoke('get-ffmpeg-path');
-                if (customPath) {
-                    ffmpegPath = customPath;
-                    logger.info(`使用FFmpeg路径: ${ffmpegPath}`);
-                }
-            } catch (e) {
-                logger.info('使用系统FFmpeg');
-            }
-
-            try {
-                // 使用FFmpeg合并
-                const command = `"${ffmpegPath}" -f concat -safe 0 -i "${listFile}" -c copy "${outputFile}" -y`;
-                logger.info(`执行FFmpeg合并命令: ${command}`);
-                await execPromise(command);
-                logger.info('FFmpeg合并成功');
-            } catch (ffmpegError) {
-                logger.warn('FFmpeg合并失败，使用简单合并', ffmpegError);
-                // 如果FFmpeg失败，尝试简单合并
-                await this.simpleMerge(segmentFiles, outputFile);
-            }
-        } catch (error) {
-            logger.error('合并片段失败', error);
-            throw error;
-        } finally {
-            // 删除列表文件
-            try {
-                await fs.unlink(listFile);
-                logger.info('删除临时列表文件');
-            } catch (e) {
-                // 忽略删除失败
-            }
+    /**
+     * 获取错误信息
+     */
+    getErrorMessage(error) {
+        if (error.response) {
+            return `HTTP ${error.response.status}`;
+        } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+            return 'timeout';
+        } else if (error.code === 'ENOTFOUND') {
+            return 'dns error';
+        } else {
+            return error.message || 'unknown';
         }
     }
 
-    // 简单合并（不使用FFmpeg）
-    async simpleMerge(segmentFiles, outputFile) {
-        try {
-            logger.info('使用简单合并方式（直接拼接）');
-            const writeStream = require('fs').createWriteStream(outputFile);
-
-            for (let i = 0; i < segmentFiles.length; i++) {
-                const file = segmentFiles[i];
-                const data = await fs.readFile(file);
-                writeStream.write(data);
-
-                // 每100个片段记录一次进度
-                if ((i + 1) % 100 === 0 || i === segmentFiles.length - 1) {
-                    logger.info(`简单合并进度: ${i + 1}/${segmentFiles.length}`);
-                }
-            }
-
-            return new Promise((resolve, reject) => {
-                writeStream.end(() => {
-                    logger.info('简单合并完成');
-                    resolve();
-                });
-                writeStream.on('error', (error) => {
-                    logger.error('简单合并写入失败', error);
-                    reject(error);
-                });
-            });
-        } catch (error) {
-            logger.error('简单合并失败', error);
-            throw error;
-        }
-    }
-
-    // 清理临时文件
-    async cleanup(tempDir) {
-        try {
-            const files = await fs.readdir(tempDir);
-            for (const file of files) {
-                await fs.unlink(path.join(tempDir, file));
-            }
-            await fs.rmdir(tempDir);
-        } catch (error) {
-            logger.error('清理临时文件失败', error);
-            // 不抛出异常，清理失败不应该影响整体流程
-        }
-    }
-
-    // 更新进度
+    /**
+     * 更新进度
+     */
     updateProgress(percent, message) {
         if (this.progressCallback) {
             this.progressCallback(percent, message);
         }
     }
 
-    // 取消下载
-    cancel() {
-        this.isCanceled = true;
-    }
-
-    // 延迟函数
+    /**
+     * 延迟
+     */
     sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * 取消下载
+     */
+    cancel() {
+        this.isCanceled = true;
+        logger.warn('下载已取消');
+        logger.runtime('用户取消下载');
     }
 }
 

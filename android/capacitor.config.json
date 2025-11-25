@@ -1,0 +1,22 @@
+{
+  "appId": "com.m3u8downloader.android",
+  "appName": "M3U8下载器",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "Filesystem": {
+      "permissions": ["publicStorage"]
+    },
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  }
+}

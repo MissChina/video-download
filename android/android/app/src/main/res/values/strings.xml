@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">M3U8下载器</string>
+    <string name="title_activity_main">M3U8下载器</string>
+    <string name="package_name">com.m3u8downloader.android</string>
+    <string name="custom_url_scheme">com.m3u8downloader.android</string>
+</resources>

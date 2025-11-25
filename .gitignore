@@ -1,3 +1,29 @@
+# Node
+node_modules/
+npm-debug.log
+package-lock.json
+
+# Build outputs
+release/
+dist/
+build/
+
+# Android/Gradle
+android/node_modules/
+android/dist/
+android/package-lock.json
+android/package.json.tmp
+android/*.apk
+android/android/app/build/
+android/android/.gradle/
+android/android/local.properties
+
+# VSCode
+.vscode/
+
+# misc
+*.log
+*.tmp
 # Claude Code 工作目录
 .claude/
 
