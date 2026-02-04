@@ -9,13 +9,43 @@
 <body>
     <!-- 主容器 -->
     <div class="container">
-        <!-- 头部 -->
         <header class="header">
-            <h1>🎬 M3U8 视频下载器</h1>
-            <span class="version">v6.0.1</span>
+            <div class="brand">
+                <div class="brand-icon">🎬</div>
+                <div class="brand-meta">
+                    <h1>M3U8 视频下载器</h1>
+                    <p class="brand-tagline">自研 Transmux 内核 · 极速稳定 · 一键导出 MP4</p>
+                </div>
+            </div>
+            <span class="version" id="version-label">v0.0.0</span>
         </header>
 
-        <!-- 标签页导航 -->
+        <section class="hero">
+            <div class="hero-card hero-intro">
+                <h2>全新安全架构</h2>
+                <p>启用 Context Isolation 安全模式，使用 Preload 脚本暴露 API，同时保持高性能转封装体验。</p>
+                <div class="hero-tags">
+                    <span class="pill">Mux.js 转封装</span>
+                    <span class="pill">片段乱序自愈</span>
+                    <span class="pill">玻璃拟态界面</span>
+                </div>
+            </div>
+            <div class="hero-card hero-highlights">
+                <div class="hero-highlight">
+                    <h3>精准速度</h3>
+                    <p>下载统计与生成文件大小保持一致，结束即得可播 MP4。</p>
+                </div>
+                <div class="hero-highlight">
+                    <h3>片段守护</h3>
+                    <p>失败段落入队占位，自动重排消除卡死与错序。</p>
+                </div>
+                <div class="hero-highlight">
+                    <h3>实时洞察</h3>
+                    <p>速度、内存、片段成功率一屏呈现，问题即时可视。</p>
+                </div>
+            </div>
+        </section>
+
         <div class="tabs">
             <button class="tab-btn active" data-tab="download">下载</button>
             <button class="tab-btn" data-tab="logs">日志查看</button>
@@ -23,226 +53,256 @@
             <button class="tab-btn" data-tab="about">关于</button>
         </div>
 
-        <!-- 标签页内容 -->
         <div class="tab-content">
-            <!-- 下载页面 -->
             <div id="download" class="tab-panel active">
                 <div class="panel-content">
-                    <!-- 视频链接输入 -->
-                    <div class="section">
-                        <label class="section-label">视频链接</label>
-                        <div class="input-group">
-                            <input type="text" id="url-input" class="input-large" placeholder="请输入 M3U8 视频链接...">
-                        </div>
-                        <div class="button-row">
-                            <button class="btn btn-sm" id="paste-btn">📋 粘贴</button>
-                            <button class="btn btn-sm" id="clear-btn">🗑️ 清空</button>
-                        </div>
-                    </div>
+                    <div class="download-grid">
+                        <div class="column column-main">
+                            <section class="section card form-card">
+                                <h3 class="card-title">创建下载任务</h3>
+                                <p class="card-subtitle">填入源地址与输出设定，桌面端会自动解密片段并封装为标准 MP4。</p>
 
-                    <!-- 下载设置 -->
-                    <div class="section">
-                        <label class="section-label">下载设置</label>
-                        <div class="settings-grid">
-                            <div class="setting-row">
-                                <label>保存路径:</label>
-                                <div class="input-with-btn">
-                                    <input type="text" id="save-path" class="input" value="" readonly>
-                                    <button class="btn btn-sm" id="browse-btn">浏览...</button>
+                                <div class="field-group">
+                                    <label class="field-label" for="url-input">视频链接</label>
+                                    <div class="input-surface">
+                                        <input type="text" id="url-input" class="input input-large" placeholder="例如 https://example.com/master.m3u8">
+                                        <div class="input-actions">
+                                            <button class="btn btn-ghost" id="paste-btn">粘贴</button>
+                                            <button class="btn btn-ghost" id="clear-btn">清空</button>
+                                        </div>
+                                    </div>
+                                    <p class="field-hint">支持携带自定义 Header / Cookie 的完整 M3U8 地址。</p>
                                 </div>
-                            </div>
 
-                            <div class="setting-row">
-                                <label>文件名:</label>
-                                <div class="name-format">
-                                    <input type="text" id="filename" class="input input-sm" value="video" placeholder="文件名">
-                                    <span class="label-text">格式: <strong>MP4</strong></span>
-                                    <select id="format" class="select" disabled style="display: none;">
-                                        <option value="mp4" selected>MP4 (自动)</option>
-                                    </select>
-                                    <span class="hint-text" style="font-size: 11px; color: #666;">(自动转换为MP4格式)</span>
+                                <div class="field-grid">
+                                    <div class="field-group">
+                                        <label class="field-label" for="save-path">保存路径</label>
+                                        <div class="input-with-actions">
+                                            <input type="text" id="save-path" class="input" value="" readonly>
+                                            <button class="btn btn-outline" id="browse-btn">浏览</button>
+                                        </div>
+                                    </div>
+                                    <div class="field-group">
+                                        <label class="field-label" for="filename">输出文件名</label>
+                                        <div class="input-with-suffix">
+                                            <input type="text" id="filename" class="input" value="video" placeholder="文件名 (无需扩展名)">
+                                            <span class="input-suffix">.mp4</span>
+                                        </div>
+                                        <p class="field-hint">自研转封装默认导出 MP4，暂不开放其他格式。</p>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div class="setting-row">
-                                <label>线程数:</label>
-                                <div class="thread-control">
-                                    <button class="counter-btn" id="decrease-btn">－</button>
-                                    <input type="text" id="thread-count" class="thread-value" value="16" readonly>
-                                    <button class="counter-btn" id="increase-btn">＋</button>
-                                    <span class="hint-text">(推荐: 8-32)</span>
+                                <div class="field-group">
+                                    <label class="field-label">性能偏好</label>
+                                    <div class="thread-box">
+                                        <div class="thread-counter">
+                                            <button class="counter-btn" id="decrease-btn">－</button>
+                                            <input type="text" id="thread-count" class="thread-value" value="16" readonly>
+                                            <button class="counter-btn" id="increase-btn">＋</button>
+                                        </div>
+                                        <div class="thread-hints">
+                                            <span class="pill pill-soft">推荐 8-32</span>
+                                            <span class="pill pill-soft">上限 64</span>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
-                    </div>
 
-                    <!-- 操作按钮 -->
-                    <div class="action-buttons">
-                        <button class="btn btn-primary btn-large" id="start-btn">开始下载</button>
-                        <button class="btn btn-danger btn-large" id="stop-btn" disabled>停止</button>
-                    </div>
+                                <div class="action-buttons redesigned">
+                                    <button class="btn btn-primary btn-large" id="start-btn">开始下载</button>
+                                    <button class="btn btn-danger btn-large" id="stop-btn" disabled>停止</button>
+                                </div>
+                            </section>
 
-                    <!-- 进度显示 -->
-                    <div class="section">
-                        <label class="section-label">下载进度</label>
-                        <div class="progress-info">
-                            <span id="status-text">准备就绪</span>
-                            <span id="progress-percent">0%</span>
+                            <section class="section card tips-card">
+                                <h3 class="card-title">操作提示</h3>
+                                <ul class="tips-list">
+                                    <li>获取到的 .m3u8 链接建议同时复制请求头，避免鉴权失败。</li>
+                                    <li>长时直播可开启更高并发，但注意运营商带宽峰值限制。</li>
+                                    <li>遇到封装失败，可在日志页查看完整堆栈并快速反馈。</li>
+                                </ul>
+                            </section>
                         </div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
-                        </div>
-                    </div>
 
-                    <!-- 日志 -->
-                    <div class="section">
-                        <div class="log-header">
-                            <label class="section-label">下载日志</label>
-                            <button class="btn btn-sm" id="clear-log-btn">清除日志</button>
-                        </div>
-                        <div class="log-box" id="log-box">
-                            <div class="log-line">[00:00:00] 欢迎使用 M3U8 视频下载器</div>
-                            <div class="log-line">[00:00:00] 请输入视频链接，然后点击开始下载</div>
+                        <div class="column column-side">
+                            <section class="section card status-card">
+                                <div class="status-header">
+                                    <h3 class="card-title">实时进度</h3>
+                                    <span class="status-badge" id="status-text">准备就绪</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
+                                </div>
+                                <div class="progress-meta">
+                                    <span>总体进度</span>
+                                    <span id="progress-percent">0%</span>
+                                </div>
+                            </section>
+
+                            <section class="section card metrics-card">
+                                <h3 class="card-title">性能监控</h3>
+                                <div class="status-stats">
+                                    <div class="stat-item">
+                                        <span class="stat-label">当前速度</span>
+                                        <span class="stat-value" id="stat-speed">0 MB/s</span>
+                                        <span class="stat-sub" id="stat-average">平均 0 MB/s</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">已下载</span>
+                                        <span class="stat-value" id="stat-downloaded">0 MB</span>
+                                        <span class="stat-sub" id="stat-segments">0 / 0 片段</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">应用内存</span>
+                                        <span class="stat-value" id="stat-memory">0 MB</span>
+                                        <span class="stat-sub" id="stat-runtime">运行 0s</span>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="section card logs-card">
+                                <div class="log-header">
+                                    <h3 class="card-title">下载日志</h3>
+                                    <button class="btn btn-ghost" id="clear-log-btn">清除</button>
+                                </div>
+                                <div class="log-box" id="log-box">
+                                    <div class="log-line">[00:00:00] 欢迎使用 M3U8 视频下载器</div>
+                                    <div class="log-line">[00:00:00] 请输入视频链接，然后点击开始下载</div>
+                                </div>
+                            </section>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 日志查看页面 -->
             <div id="logs" class="tab-panel">
                 <div class="panel-content">
-                    <!-- 密码验证 -->
-                    <div class="section" id="password-section">
-                        <label class="section-label">🔒 密码验证</label>
+                    <section class="section card" id="password-section">
+                        <h3 class="card-title">🔒 日志访问</h3>
+                        <p class="card-subtitle">输入授权密码以解锁运行日志、下载记录与错误堆栈。</p>
                         <div class="password-box">
                             <input type="password" id="log-password" class="input" placeholder="请输入密码...">
                             <button class="btn btn-primary" id="unlock-logs-btn">解锁</button>
                         </div>
-                        <p class="hint-text">提示：查看日志需要密码验证</p>
-                    </div>
+                        <p class="hint-text">提示：保护日志可避免敏感链接泄漏。</p>
+                    </section>
 
-                    <!-- 日志内容区域（初始隐藏） -->
                     <div id="logs-content" style="display: none;">
-                        <!-- 日志类型选择 -->
-                        <div class="section">
-                            <label class="section-label">日志类型</label>
-                            <div class="button-row">
-                                <button class="btn btn-sm log-type-btn active" data-log-type="runtime">运行日志</button>
-                                <button class="btn btn-sm log-type-btn" data-log-type="download">下载记录</button>
-                                <button class="btn btn-sm log-type-btn" data-log-type="error">错误日志</button>
+                        <section class="section card">
+                            <h3 class="card-title">日志类型</h3>
+                            <div class="log-type-row">
+                                <button class="btn btn-ghost log-type-btn active" data-log-type="runtime">运行日志</button>
+                                <button class="btn btn-ghost log-type-btn" data-log-type="download">下载记录</button>
+                                <button class="btn btn-ghost log-type-btn" data-log-type="error">错误日志</button>
                             </div>
-                        </div>
+                        </section>
 
-                        <!-- 日志操作按钮 -->
-                        <div class="section">
-                            <div class="button-row">
+                        <section class="section card">
+                            <div class="log-actions">
                                 <button class="btn btn-primary" id="refresh-logs-btn">🔄 刷新日志</button>
-                                <button class="btn btn-sm" id="open-log-dir-btn">📁 打开日志目录</button>
+                                <button class="btn btn-outline" id="open-log-dir-btn">📁 打开日志目录</button>
                             </div>
-                        </div>
+                        </section>
 
-                        <!-- 日志显示区域 -->
-                        <div class="section">
-                            <label class="section-label" id="log-type-label">运行日志</label>
+                        <section class="section card">
+                            <div class="log-viewer-header">
+                                <h3 class="card-title" id="log-type-label">运行日志</h3>
+                            </div>
                             <div class="log-viewer" id="log-viewer">
                                 <pre id="log-content">加载中...</pre>
                             </div>
-                        </div>
+                        </section>
                     </div>
                 </div>
             </div>
 
-            <!-- 设置页面 -->
             <div id="settings" class="tab-panel">
                 <div class="panel-content">
-                    <!-- 下载参数 -->
-                    <div class="section">
-                        <label class="section-label">下载参数</label>
-                        <div class="settings-grid">
-                            <div class="setting-row">
-                                <label>连接超时:</label>
+                    <section class="section card">
+                        <h3 class="card-title">下载参数</h3>
+                        <p class="card-subtitle">调整网络请求时长与失败重试次数，以适配不同站点。</p>
+                        <div class="field-grid compact">
+                            <div class="field-group">
+                                <label class="field-label" for="timeout">连接超时</label>
                                 <div class="input-with-unit">
                                     <input type="number" id="timeout" class="input input-sm" value="30" min="5" max="300">
                                     <span>秒</span>
                                 </div>
                             </div>
-                            <div class="setting-row">
-                                <label>重试次数:</label>
+                            <div class="field-group">
+                                <label class="field-label" for="retry">重试次数</label>
                                 <div class="input-with-unit">
                                     <input type="number" id="retry" class="input input-sm" value="3" min="0" max="10">
                                     <span>次</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </section>
 
-                    <!-- 保存按钮 -->
-                    <div class="section">
+                    <section class="section card">
+                        <h3 class="card-title">保存设定</h3>
+                        <p class="card-subtitle">保存后将立即应用于下一次下载任务。</p>
                         <button class="btn btn-success btn-large" id="save-settings-btn">💾 保存设置</button>
-                    </div>
+                    </section>
                 </div>
             </div>
 
-            <!-- 关于页面 -->
             <div id="about" class="tab-panel">
                 <div class="panel-content about-content">
-                    <div class="about-header">
+                    <section class="section card about-header">
                         <h2>🎬 M3U8 视频下载器</h2>
-                        <p class="version-text">Windows Version 6.0.1</p>
-                        <p class="description">跨平台HLS视频流下载工具 - 内置 FFmpeg.wasm - 自动MP4转换</p>
-                    </div>
+                        <p class="version-text" id="about-version">Windows Version 0.0.0</p>
+                        <p class="description">跨平台 HLS 下载工具，纯 JavaScript 转封装，免 FFmpeg。</p>
+                    </section>
 
-                    <div class="about-section">
+                    <section class="section card about-section">
                         <h3>核心功能</h3>
                         <ul class="feature-list">
-                            <li>• 支持 M3U8/HLS 视频流下载</li>
-                            <li>• AES-128 加密自动解密</li>
-                            <li>• 多线程并发下载 (最高32线程)</li>
-                            <li>• 智能重试和错误恢复</li>
-                            <li>• 自动转换为MP4格式</li>
-                            <li>• 跨平台支持 (Windows/Android)</li>
-                            <li>• 内置 FFmpeg.wasm，无需额外安装</li>
+                            <li>自研 PipelineController + mux.js Transmuxer，极速生成标准 MP4。</li>
+                            <li>支持 AES-128 自动解密，片段失败自动重排与重试。</li>
+                            <li>BufferPool 与 DiskSpill 联动，长片段内存稳态可控。</li>
+                            <li>实时仪表盘展示速度、内存、片段成功率与错误。</li>
+                            <li>日志中心内置密码保护、类型筛选与快速导出。</li>
+                            <li>Windows 桌面与 Android Web 封装共用同一核心。</li>
                         </ul>
-                    </div>
+                    </section>
 
-                    <div class="about-section">
+                    <section class="section card about-section">
                         <h3>技术规格</h3>
                         <div class="tech-info">
                             <div class="tech-row">
-                                <span class="tech-label">开发技术:</span>
+                                <span class="tech-label">开发技术</span>
                                 <span class="tech-value">Electron + Node.js</span>
                             </div>
                             <div class="tech-row">
-                                <span class="tech-label">界面技术:</span>
+                                <span class="tech-label">界面技术</span>
                                 <span class="tech-value">HTML + CSS + JavaScript</span>
                             </div>
                             <div class="tech-row">
-                                <span class="tech-label">视频处理:</span>
-                                <span class="tech-value">FFmpeg.wasm (WebAssembly)</span>
+                                <span class="tech-label">视频管线</span>
+                                <span class="tech-value">PlaylistParser → SegmentFetcher → mux.js</span>
                             </div>
                             <div class="tech-row">
-                                <span class="tech-label">网络请求:</span>
-                                <span class="tech-value">Axios</span>
+                                <span class="tech-label">网络请求</span>
+                                <span class="tech-value">Node http/https + 自定义 Header</span>
                             </div>
                             <div class="tech-row">
-                                <span class="tech-label">支持平台:</span>
-                                <span class="tech-value">Windows / Linux / macOS</span>
+                                <span class="tech-label">支持平台</span>
+                                <span class="tech-value">Windows / Android (Web)</span>
                             </div>
                         </div>
-                    </div>
+                    </section>
 
-                    <div class="about-footer">
-                        <p>© 2025 M3U8 Video Downloader</p>
-                        <p>开源项目 • 仅供学习使用</p>
-                    </div>
+                    <section class="section card about-footer">
+                        <p>© 2026 MissChina</p>
+                        <p>开源项目 · 仅供学习使用</p>
+                    </section>
                 </div>
             </div>
         </div>
 
-        <!-- 底部状态栏 -->
         <footer class="footer">
             <span id="footer-status">就绪</span>
-            <span class="footer-right">© 2025</span>
+            <span class="footer-right">© 2026 MissChina</span>
         </footer>
     </div>
 

@@ -18,7 +18,7 @@
     "android",
     "capacitor"
   ],
-  "author": "M3U8 Downloader",
+  "author": "MissChina",
   "license": "MIT",
   "dependencies": {
     "@capacitor/android": "^5.7.0",

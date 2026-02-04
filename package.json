@@ -1,6 +1,6 @@
 {
   "name": "m3u8-downloader",
-  "version": "7.0.0",
+  "version": "8.1.0",
   "description": "M3U8视频下载器 - 跨平台，开箱即用",
   "main": "main.js",
   "scripts": {
@@ -14,20 +14,17 @@
     "m3u8",
     "downloader",
     "video",
-    "ffmpeg",
+    "hls",
     "cross-platform"
   ],
-  "author": "M3U8 Downloader",
+  "author": "MissChina",
   "license": "MIT",
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
-    "axios": "^1.6.2",
-    "@ffmpeg/ffmpeg": "^0.12.10",
-    "@ffmpeg/util": "^0.12.1",
-    "@ffmpeg/core-mt": "^0.12.6"
+    "mux.js": "^6.0.1"
   },
   "build": {
     "appId": "com.m3u8downloader.app",
@@ -36,14 +33,17 @@
       "output": "release"
     },
     "files": [
+      "package.json",
       "main.js",
+      "preload.js",
       "renderer.js",
       "downloader.js",
       "logger.js",
-      "ffmpeg-worker.js",
       "index.html",
       "styles.css",
       "LICENSE",
+      "node_modules/mux.js/**",
+      "src/core/**",
       "!**/*.md",
       "!**/*.map",
       "!**/*.ts",
@@ -58,9 +58,6 @@
     "compression": "maximum",
     "removePackageScripts": true,
     "asar": true,
-    "asarUnpack": [
-      "node_modules/@ffmpeg/core-mt/**/*"
-    ],
     "win": {
       "target": [
         {

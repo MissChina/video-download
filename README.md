@@ -1,102 +1,45 @@
-# M3U8 Video Downloader
+# M3U8 视频下载器（v8.1.0）
 
-A cross-platform M3U8/HLS video stream downloader, supporting Windows and Android.
+跨平台 M3U8/HLS 视频下载工具，自研高速管线，无需依赖 FFmpeg。
 
-[English](#english) | [中文](#中文)
+## 主要特性
 
----
+- 自研 HLS → MP4 管线，支持 H.264/AAC，默认 16 段并发下载
+- 全新玻璃拟态界面，实时卡片展示速度、内存与失败率
+- AES-128 自动解密，按段重试与乱序重排
+- 内存池与磁盘溢写协同，长片段场景内存保持可控
+- 实时指标：下载速度、缓冲占用、音视频样本数、错误队列
+- Context Isolation 安全架构，Preload 脚本隔离 Node.js API
 
-## English
+## 下载
 
-### Features
+发布版本请前往 [Releases](https://github.com/MissChina/video-download/releases)：
 
-- M3U8/HLS video stream download
-- Automatic AES-128 decryption
-- Multi-threaded concurrent download (up to 32 threads)
-- Auto-convert to MP4 format (Windows)
-- Built-in FFmpeg.wasm, no additional installation required
+- Windows：`M3U8下载器-x.x.x-Windows.exe`
+- Linux：`M3U8下载器-x.x.x-Linux.AppImage`
+- macOS：`M3U8下载器-x.x.x-macOS.dmg`
 
-### Download
+## 使用方法
 
-Go to [Releases](https://github.com/MissChina/video-download/releases) to download the latest version:
+1. 打开应用，粘贴 M3U8 地址
+2. 选定保存路径与线程数
+3. 点击「开始下载」，实时监控面板将展示速度、内存与片段进度
+4. 完成后在保存目录中找到生成的 MP4 文件
 
-- **Windows**: `M3U8下载器-x.x.x-Windows.exe`
-- **Android**: `M3U8-Downloader-vx.x.x.apk`
+## 技术架构
 
-### Usage
-
-1. Open the application
-2. Paste M3U8 video URL
-3. Set filename and thread count
-4. Click "Start Download"
-
-### Tech Stack
-
-| Platform | Technology |
-|----------|------------|
-| Windows | Electron + Node.js |
-| Android | Capacitor + Web |
-| Video Processing | FFmpeg.wasm |
-
-### Build from Source
-
-```bash
-# Clone the repository
-git clone https://github.com/MissChina/video-download.git
-cd video-download
-
-# Install dependencies
-npm install
-
-# Run in development mode
-npm start
-
-# Build for Windows
-npm run build:win
-
-# Build for all platforms
-npm run build
-```
-
-### License
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 中文
-
-### 功能特性
-
-- 支持 M3U8/HLS 视频流下载
-- AES-128 加密自动解密
-- 多线程并发下载（最高 32 线程）
-- 自动转换为 MP4 格式（Windows）
-- 内置 FFmpeg.wasm，无需额外安装
-
-### 下载
-
-前往 [Releases](https://github.com/MissChina/video-download/releases) 下载最新版本：
-
-- **Windows**: `M3U8下载器-x.x.x-Windows.exe`
-- **Android**: `M3U8-Downloader-vx.x.x.apk`
-
-### 使用方法
-
-1. 打开应用
-2. 粘贴 M3U8 视频链接
-3. 设置文件名和线程数
-4. 点击"开始下载"
-
-### 技术栈
-
-| 平台 | 技术 |
+| 模块 | 描述 |
 |------|------|
-| Windows | Electron + Node.js |
-| Android | Capacitor + Web |
-| 视频处理 | FFmpeg.wasm |
+| Electron 主进程 | 任务编排、IPC 通讯、日志收集 |
+| Preload 脚本 | 安全暴露 API，隔离渲染进程 |
+| Renderer UI | 玻璃拟态面板，展示实时指标 |
+| PlaylistParser | 解析 M3U8 清单，提取片段与密钥信息 |
+| SegmentFetcher | 带重试的并发下载器，支持自定义 Header |
+| BufferPool & DiskSpill | 内存块复用 + 阈值溢写，控制内存压力 |
+| mux.js Transmuxer | TS 片段转封装为标准 MP4 流 |
+| MetricsCenter | 汇总速度、缓冲、样本、错误并推送至 UI |
 
-### 从源码构建
+## 从源码构建
 
 ```bash
 # 克隆仓库
@@ -106,20 +49,23 @@ cd video-download
 # 安装依赖
 npm install
 
-# 开发模式运行
+# 开发模式
 npm start
 
-# 构建 Windows 版本
-npm run build:win
-
-# 构建所有平台
-npm run build
+# 构建各平台安装包
+npm run build:win    # Windows
+npm run build:linux  # Linux
+npm run build:mac    # macOS
 ```
 
-### 开源协议
+## 常见问题
 
-本项目采用 **MIT 许可证** 开源 - 详见 [LICENSE](LICENSE) 文件。
+- **密钥下载失败**：目标站点可能需要自定义 Header/Cookie，请确认链接携带完整鉴权信息。
+- **生成的 MP4 无法播放**：确认源流为 H.264/AAC 编码，其他编码暂未支持。
+- **下载速度不足**：默认 16 并发，可在界面中调整；同时确认网络是否有限制。
 
----
+## 许可证
 
-Copyright (c) 2025 MissChina
+本项目采用 MIT 许可，详见 [LICENSE](LICENSE)。
+
+Copyright (c) 2026 MissChina

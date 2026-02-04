@@ -1,32 +1,3 @@
-# Node
-node_modules/
-npm-debug.log
-package-lock.json
-
-# Build outputs
-release/
-dist/
-build/
-
-# Android/Gradle
-android/node_modules/
-android/dist/
-android/package-lock.json
-android/package.json.tmp
-android/*.apk
-android/android/app/build/
-android/android/.gradle/
-android/android/local.properties
-
-# VSCode
-.vscode/
-
-# misc
-*.log
-*.tmp
-# Claude Code 工作目录
-.claude/
-
 # 依赖
 node_modules/
 package-lock.json
@@ -34,11 +5,15 @@ package-lock.json
 # 构建产物
 release/
 dist/
+build/
 
 # 日志文件
 *.log
 log/
 logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # 操作系统文件
 .DS_Store
@@ -57,16 +32,24 @@ desktop.ini
 .temp/
 .cache/
 
-# 用户数据（不上传）
-AppData/
-.config/
-
-# npm debug 日志
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
 # 环境变量
 .env
 .env.local
 .env.*.local
+
+# Claude Code 工作目录
+.claude/
+
+# Android
+android/node_modules/
+android/dist/
+android/package-lock.json
+android/package.json.tmp
+android/*.apk
+android/android/app/build/
+android/android/.gradle/
+android/android/local.properties
+
+# 用户数据
+AppData/
+.config/

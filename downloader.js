@@ -1,487 +1,425 @@
-const axios = require('axios');
-const fs = require('fs').promises;
-const fsSync = require('fs');
+'use strict';
+
+const fsp = require('fs/promises');
 const path = require('path');
+
 const logger = require('./logger');
-
-/**
- * M3U8 Downloader v6.0.1 - 完全重写版本
- *
- * 核心特性：
- * 1. 全局失败检测 - 20个片段失败率>50%立即停止
- * 2. 强制MP4输出 - 无论输入什么文件名，最终都是MP4
- * 3. 简化日志 - 避免白屏
- * 4. 异步日志写入 - 不阻塞主进程
- */
-
-// Axios实例
-const browserAxios = axios.create({
-    httpsAgent: new (require('https').Agent)({
-        rejectUnauthorized: false
-    }),
-    maxRedirects: 5,
-    decompress: true
-});
+const PipelineController = require('./src/core/pipelineController');
+const MetricsCenter = require('./src/core/metricsCenter');
+const { version: APP_VERSION } = require('./package.json');
 
 class M3U8Downloader {
     constructor() {
-        this.isCanceled = false;
+        this.controller = null;
+        this.metrics = null;
         this.progressCallback = null;
-
-        // 全局计数器
-        this.globalCompleted = 0;
-        this.globalFailed = 0;
-        this.failureDetails = [];
-
-        // 配置
-        this.BATCH_SIZE = 100;
-        this.MAX_MEMORY_SEGMENTS = 200;
+        this.resolvePromise = null;
+        this.rejectPromise = null;
+        this.statusMessage = '就绪';
+        this.inProgress = false;
+        this.finished = false;
+        this.failureTriggered = false;
+        this.canceled = false;
+        this.metricsListener = null;
+        this.stateListener = null;
+        this.retryListener = null;
+        this.segmentFailedListener = null;
+        this.errorListener = null;
+        this.completedListener = null;
+        this.stoppedListener = null;
+        this.taskStart = 0;
+        this.sourceUrl = '';
+        this.targetFile = '';
+        this.headers = {};
     }
 
-    /**
-     * 主下载方法
-     */
-    async download(m3u8Url, outputFile, options = {}) {
+    async download(url, outputFile, options = {}) {
+        if (this.inProgress) {
+            throw new Error('已有任务正在运行，请稍候');
+        }
+
+        if (!url || typeof url !== 'string') {
+            throw new Error('请输入有效的 M3U8 链接');
+        }
+
+        const normalizedOutput = this._normalizeOutput(outputFile);
         const {
             maxWorkers = 16,
             timeout = 30000,
             retry = 3,
-            progressCallback = null
+            progressCallback = null,
+            headers = {},
+            userAgent = 'VideoDownloader/1.0'
         } = options;
 
-        const startTime = Date.now();
+        this.progressCallback = typeof progressCallback === 'function' ? progressCallback : null;
+        this.statusMessage = '正在解析M3U8...';
+        this.taskStart = Date.now();
+        this.sourceUrl = url;
+        this.targetFile = normalizedOutput;
+        this.headers = headers || {};
+        this.inProgress = true;
+        this.finished = false;
+        this.failureTriggered = false;
+        this.canceled = false;
 
-        // 🔥 关键：强制最终文件为MP4格式
-        const baseFileName = this.getBaseFileName(outputFile);
-        const outputDir = path.dirname(outputFile);
-        const tempTsFile = path.join(outputDir, `${baseFileName}.temp.ts`);
-        const finalMp4File = path.join(outputDir, `${baseFileName}.mp4`);
+        logger.info(`========== 自研管线 v${APP_VERSION} ==========`);
+        logger.info(`源地址: ${url}`);
+        logger.info(`输出文件: ${normalizedOutput}`);
+        logger.runtime(`开始下载任务 → ${path.basename(normalizedOutput)}`);
 
-        logger.info(`========== M3U8下载器 v6.0.1 ==========`);
-        logger.info(`输出文件: ${finalMp4File}`);
-        logger.runtime(`开始下载任务 → ${path.basename(finalMp4File)}`);
+        this.metrics = new MetricsCenter();
+        this.controller = new PipelineController({
+            concurrent: Math.max(1, maxWorkers),
+            timeout,
+            retry,
+            metrics: this.metrics,
+            userAgent
+        });
 
-        this.isCanceled = false;
-        this.progressCallback = progressCallback;
-        this.globalCompleted = 0;
-        this.globalFailed = 0;
-        this.failureDetails = [];
+        this._bindEvents();
+        this._emitProgress(1, this.statusMessage, this._composeMetrics(this.metrics.snapshot(), { total: 0, completed: 0, failed: 0 }));
 
         try {
-            // 步骤1: 获取M3U8
-            this.updateProgress(5, '获取M3U8...');
-            const m3u8Content = await this.fetchM3U8(m3u8Url, timeout);
-
-            // 步骤2: 解析片段
-            this.updateProgress(10, '解析片段...');
-            const segments = this.parseM3U8(m3u8Content, m3u8Url);
-
-            if (segments.length === 0) {
-                throw new Error('未找到视频片段');
-            }
-
-            logger.info(`共 ${segments.length} 个片段`);
-            this.updateProgress(15, `共${segments.length}片段`);
-
-            // 步骤3: 下载TS片段
-            logger.runtime(`开始下载 ${segments.length} 个片段...`);
-            await this.downloadAllSegments(segments, tempTsFile, maxWorkers, timeout, retry);
-
-            // 步骤4: 转换为MP4
-            this.updateProgress(85, '转换MP4...');
-            logger.info(`转换: ${tempTsFile} → ${finalMp4File}`);
-            logger.runtime('正在转换为MP4格式...');
-
-            await this.convertToMp4(tempTsFile, finalMp4File);
-
-            // 删除临时文件
-            await fs.unlink(tempTsFile);
-
-            this.updateProgress(100, '完成');
-
-            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-            const stats = await fs.stat(finalMp4File);
-            const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
-
-            logger.info(`========== 下载完成 ==========`);
-            logger.info(`文件: ${finalMp4File}`);
-            logger.info(`大小: ${sizeMB} MB`);
-            logger.info(`耗时: ${duration} 秒`);
-            logger.runtime(`✅ 完成: ${path.basename(finalMp4File)} (${sizeMB}MB)`);
-
-            return true;
-
+            await this.controller.start({
+                url,
+                output: normalizedOutput,
+                headers: this.headers
+            });
         } catch (error) {
-            logger.error('下载失败', error);
-            logger.runtime(`❌ 失败: ${error.message}`);
-
-            // 清理临时文件
-            if (fsSync.existsSync(tempTsFile)) {
-                await fs.unlink(tempTsFile).catch(() => {});
-            }
-
+            logger.error('解析清单失败', error);
+            this.statusMessage = '下载失败';
+            this._emitProgress(0, this.statusMessage, this._composeMetrics(this.metrics.snapshot(), this.controller?.getStatus?.() || { total: 0, completed: 0, failed: 0 }));
+            this._cleanup();
             throw error;
         }
+
+        const status = this.controller.getStatus();
+        if (status.total > 0) {
+            logger.info(`共 ${status.total} 个片段，开始并发下载`);
+        }
+
+        return new Promise((resolve, reject) => {
+            this.resolvePromise = resolve;
+            this.rejectPromise = reject;
+        });
     }
 
-    /**
-     * 获取基础文件名（去掉扩展名）
-     */
-    getBaseFileName(filePath) {
-        const basename = path.basename(filePath);
-        // 去掉所有可能的扩展名
-        return basename.replace(/\.(ts|mp4|mkv|avi|flv)$/i, '').replace(/\.\w+$/, '');
-    }
+    async cancel(reason = '用户取消') {
+        if (!this.inProgress || !this.controller || this.finished) {
+            return false;
+        }
 
-    /**
-     * 下载所有片段
-     */
-    async downloadAllSegments(segments, outputFile, maxWorkers, timeout, retry) {
-        const totalSegments = segments.length;
-        const useBatchMode = totalSegments > this.MAX_MEMORY_SEGMENTS;
-
-        // 确保目录存在
-        await fs.mkdir(path.dirname(outputFile), { recursive: true });
-
-        const writeStream = fsSync.createWriteStream(outputFile, { flags: 'w' });
+        this.canceled = true;
+        logger.warn('下载已取消');
+        logger.runtime('用户取消下载');
 
         try {
-            const referer = this.getReferer(segments[0].url);
-            const batchSize = useBatchMode ? this.BATCH_SIZE : totalSegments;
-
-            for (let batchStart = 0; batchStart < totalSegments; batchStart += batchSize) {
-                if (this.isCanceled) {
-                    throw new Error('用户取消');
-                }
-
-                const batchEnd = Math.min(batchStart + batchSize, totalSegments);
-                const currentBatch = segments.slice(batchStart, batchEnd);
-
-                const batchResults = await this.downloadBatchWithFailFast(
-                    currentBatch,
-                    maxWorkers,
-                    timeout,
-                    retry,
-                    referer,
-                    batchStart
-                );
-
-                // 写入文件
-                if (batchResults.length > 0) {
-                    const merged = Buffer.concat(batchResults);
-                    await new Promise((resolve, reject) => {
-                        writeStream.write(merged, (err) => err ? reject(err) : resolve());
-                    });
-                }
-            }
-
-            await new Promise(resolve => writeStream.end(resolve));
-
-            logger.info(`下载完成: ${this.globalCompleted}/${totalSegments}`);
-
+            await this.controller.stop(reason);
         } catch (error) {
-            writeStream.close();
-            if (fsSync.existsSync(outputFile)) {
-                await fs.unlink(outputFile);
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * 下载批次（带快速失败）
-     */
-    async downloadBatchWithFailFast(segments, maxWorkers, timeout, retry, referer, globalOffset) {
-        const results = [];
-
-        for (let i = 0; i < segments.length; i += maxWorkers) {
-            if (this.isCanceled) break;
-
-            const batch = segments.slice(i, i + maxWorkers);
-            const promises = batch.map(seg => this.downloadSegment(seg, timeout, retry, referer));
-            const batchResults = await Promise.all(promises);
-
-            // 收集结果
-            for (let j = 0; j < batchResults.length; j++) {
-                const result = batchResults[j];
-                const segment = batch[j];
-
-                if (result.success) {
-                    results.push(result.data);
-                    this.globalCompleted++;
-                } else {
-                    this.globalFailed++;
-                    this.failureDetails.push({
-                        index: globalOffset + i + j,
-                        error: result.error
-                    });
-                }
-            }
-
-            // 更新进度
-            const total = this.globalCompleted + this.globalFailed;
-            const progress = 20 + Math.floor((this.globalCompleted / (total + segments.length - i - batch.length)) * 65);
-            this.updateProgress(progress, `${this.globalCompleted}/${total}`);
-
-            // 🔥 全局失败检测
-            if (total >= 20) {
-                const failureRate = (this.globalFailed / total) * 100;
-
-                if (failureRate > 50) {
-                    logger.error(`🚨 失败率过高: ${failureRate.toFixed(1)}% (${this.globalFailed}/${total})`);
-                    logger.error(`前3个失败:`);
-
-                    this.failureDetails.slice(0, 3).forEach(detail => {
-                        logger.error(`  片段 ${detail.index}: ${detail.error}`);
-                    });
-
-                    throw new Error(
-                        `失败率过高 (${failureRate.toFixed(1)}%)\n\n` +
-                        `可能原因:\n` +
-                        `1. 服务器拒绝请求 (403/401)\n` +
-                        `2. 链接已过期\n` +
-                        `3. 需要Cookie认证\n` +
-                        `4. 网络问题\n\n` +
-                        `请在浏览器中测试链接`
-                    );
-                }
-            }
+            logger.warn('停止管线时出现问题', error);
         }
 
-        return results;
+        const status = this.controller?.getStatus?.() || { total: 0, completed: 0, failed: 0 };
+        this.statusMessage = '已停止';
+        this._emitProgress(0, this.statusMessage, this._composeMetrics(this.metrics?.snapshot?.() || null, status));
+
+        logger.download({
+            url: this.sourceUrl,
+            filename: path.basename(this.targetFile || '未知文件'),
+            status: 'canceled',
+            error: reason
+        });
+
+        this._resolve(false);
+        return true;
     }
 
-    /**
-     * 下载单个片段
-     */
-    async downloadSegment(segment, timeout, retry, referer) {
-        for (let attempt = 0; attempt < retry; attempt++) {
-            if (this.isCanceled) {
-                return { success: false, error: 'canceled' };
-            }
-
-            try {
-                const headers = this.getBrowserHeaders(referer);
-
-                const response = await browserAxios.get(segment.url, {
-                    headers,
-                    timeout,
-                    responseType: 'arraybuffer'
-                });
-
-                if (response.status !== 200) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-
-                return {
-                    success: true,
-                    data: Buffer.from(response.data)
-                };
-
-            } catch (error) {
-                const errorMsg = this.getErrorMessage(error);
-
-                if (attempt < retry - 1) {
-                    // 只记录第一次重试
-                    if (attempt === 0) {
-                        logger.warn(`片段 ${segment.index}: ${errorMsg} - 重试`);
-                    }
-                    await this.sleep(1000);
-                } else {
-                    return { success: false, error: errorMsg };
-                }
-            }
+    _bindEvents() {
+        if (!this.controller || !this.metrics) {
+            return;
         }
 
-        return { success: false, error: 'max retries' };
+        this.metricsListener = snapshot => this._handleMetrics(snapshot);
+        this.metrics.on('update', this.metricsListener);
+
+        this.stateListener = state => this._handleState(state);
+        this.controller.on('state', this.stateListener);
+
+        this.retryListener = payload => this._handleRetry(payload);
+        this.controller.on('retry', this.retryListener);
+
+        this.segmentFailedListener = payload => this._handleSegmentFailure(payload);
+        this.controller.on('segment-failed', this.segmentFailedListener);
+
+        this.errorListener = payload => this._handlePipelineError(payload);
+        this.controller.on('error', this.errorListener);
+
+        this.completedListener = payload => {
+            this.controller.off('completed', this.completedListener);
+            Promise.resolve(this._handleCompleted(payload)).catch(err => this._reject(err));
+        };
+        this.controller.on('completed', this.completedListener);
+
+        this.stoppedListener = reason => {
+            this.controller.off('stopped', this.stoppedListener);
+            this._handleStopped(reason);
+        };
+        this.controller.on('stopped', this.stoppedListener);
     }
 
-    /**
-     * 转换TS到MP4
-     */
-    async convertToMp4(inputTs, outputMp4) {
-        try {
-            const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-            const { toBlobURL } = await import('@ffmpeg/util');
+    _handleMetrics(snapshot) {
+        if (!this.controller || this.finished) {
+            return;
+        }
 
-            const ffmpeg = new FFmpeg();
+        const status = this.controller.getStatus();
+        const total = status.total || 0;
+        const completed = status.completed || 0;
+        const failed = status.failed || 0;
+        const processed = completed + failed;
 
-            // 日志过滤（避免过多日志）
-            let logCount = 0;
-            ffmpeg.on('log', ({ message }) => {
-                if (message.includes('time=') && logCount++ % 10 === 0) {
-                    logger.info(`转换中...`);
-                }
+        if (!this.failureTriggered && processed >= 20 && failed / processed > 0.5) {
+            this.failureTriggered = true;
+            const failureRate = (failed / processed) * 100;
+            const summary = `失败率过高 (${failureRate.toFixed(1)}%)，任务已终止`;
+            logger.error(summary);
+            this.statusMessage = '失败率过高';
+            this._emitProgress(
+                total ? Math.min(Math.floor((completed / total) * 100), 99) : 0,
+                this.statusMessage,
+                this._composeMetrics(snapshot, status)
+            );
+            logger.download({
+                url: this.sourceUrl,
+                filename: path.basename(this.targetFile || '未知文件'),
+                status: 'failed',
+                error: summary
             });
-
-            logger.info('加载FFmpeg...');
-
-            const coreBasePath = path.join(__dirname, 'node_modules', '@ffmpeg', 'core-mt', 'dist', 'esm');
-            const coreURL = await toBlobURL(path.join(coreBasePath, 'ffmpeg-core.js'), 'text/javascript');
-            const wasmURL = await toBlobURL(path.join(coreBasePath, 'ffmpeg-core.wasm'), 'application/wasm');
-            const workerURL = await toBlobURL(path.join(coreBasePath, 'ffmpeg-core.worker.js'), 'text/javascript');
-
-            await ffmpeg.load({ coreURL, wasmURL, workerURL });
-
-            // 读取输入
-            const inputData = await fs.readFile(inputTs);
-            await ffmpeg.writeFile('input.ts', new Uint8Array(inputData));
-
-            // 转换
-            logger.info('执行转换...');
-            await ffmpeg.exec(['-i', 'input.ts', '-c', 'copy', '-movflags', '+faststart', 'output.mp4']);
-
-            // 读取输出
-            const outputData = await ffmpeg.readFile('output.mp4');
-
-            // 写入文件
-            await fs.writeFile(outputMp4, outputData);
-
-            logger.info(`MP4已保存: ${outputMp4}`);
-
-            // 清理
-            await ffmpeg.deleteFile('input.ts');
-            await ffmpeg.deleteFile('output.mp4');
-
-        } catch (error) {
-            logger.error('MP4转换失败', error);
-            throw new Error(`MP4转换失败: ${error.message}`);
+            this.controller.stop('失败率过高').catch(err => logger.warn('停止管线失败', err));
+            this._reject(new Error(summary));
+            return;
         }
+
+        const percent = total ? Math.min(Math.floor((completed / total) * 100), this.statusMessage.includes('封装') ? 99 : 95) : 0;
+        this._emitProgress(percent, this.statusMessage, this._composeMetrics(snapshot, status));
     }
 
-    /**
-     * 获取M3U8内容
-     */
-    async fetchM3U8(url, timeout) {
-        try {
-            const headers = this.getBrowserHeaders(this.getReferer(url));
-
-            const response = await browserAxios.get(url, {
-                headers,
-                timeout,
-                responseType: 'text'
-            });
-
-            if (response.status !== 200) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            if (!response.data || typeof response.data !== 'string') {
-                throw new Error('M3U8内容为空');
-            }
-
-            return response.data;
-
-        } catch (error) {
-            const errorMsg = this.getErrorMessage(error);
-            logger.error(`获取M3U8失败: ${errorMsg}`, error);
-            throw new Error(`获取M3U8失败: ${errorMsg}`);
+    _handleState(state) {
+        if (this.finished) {
+            return;
         }
-    }
 
-    /**
-     * 解析M3U8
-     */
-    parseM3U8(content, baseUrl) {
-        const lines = content.split('\n').map(l => l.trim()).filter(l => l);
-        const segments = [];
-        let index = 0;
-
-        for (const line of lines) {
-            if (line.startsWith('#')) continue;
-
-            if (line.endsWith('.ts') || line.includes('.ts?')) {
-                let url = line;
-
-                if (!url.startsWith('http')) {
-                    const baseUrlObj = new URL(baseUrl);
-                    if (url.startsWith('/')) {
-                        url = `${baseUrlObj.protocol}//${baseUrlObj.host}${url}`;
-                    } else {
-                        const basePath = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
-                        url = basePath + url;
-                    }
+        switch (state) {
+            case 'preparing':
+                this.statusMessage = '正在解析M3U8...';
+                break;
+            case 'downloading':
+                this.statusMessage = '片段下载中...';
+                break;
+            case 'finalizing':
+                this.statusMessage = '正在封装MP4...';
+                break;
+            case 'completed':
+                this.statusMessage = '✅ 下载完成';
+                break;
+            case 'idle':
+                if (!this.canceled && !this.finished) {
+                    this.statusMessage = '已停止';
                 }
-
-                segments.push({ index: index++, url });
-            }
+                break;
+            default:
+                break;
         }
 
-        return segments;
+        const status = this.controller?.getStatus?.() || { total: 0, completed: 0, failed: 0 };
+        const snapshot = this.metrics?.snapshot?.() || null;
+        this._emitProgress(status.total ? Math.min(Math.floor((status.completed / status.total) * 100), 99) : 0, this.statusMessage, this._composeMetrics(snapshot, status));
     }
 
-    /**
-     * 获取浏览器请求头
-     */
-    getBrowserHeaders(referer) {
+    _handleRetry({ segment, attempt, error }) {
+        const index = segment?.index ?? segment?.sequence ?? '未知';
+        const message = error?.message || (typeof error === 'string' ? error : '未知错误');
+        logger.warn(`片段 ${index} 第 ${attempt} 次重试: ${message}`);
+    }
+
+    _handleSegmentFailure({ segment, error }) {
+        const index = segment?.index ?? segment?.sequence ?? '未知';
+        const message = error?.message || (typeof error === 'string' ? error : '未知错误');
+        logger.warn(`片段 ${index} 下载失败: ${message}`);
+    }
+
+    _handlePipelineError(payload) {
+        if (this.finished) {
+            return;
+        }
+
+        const err = payload?.error instanceof Error ? payload.error : new Error(payload?.error?.message || payload?.error || '未知错误');
+
+        if (payload?.stage === 'finalize') {
+            logger.error('封装 MP4 过程中出现错误', err);
+            logger.download({
+                url: this.sourceUrl,
+                filename: path.basename(this.targetFile || '未知文件'),
+                status: 'failed',
+                error: err.message
+            });
+            this.statusMessage = '封装失败';
+            this._reject(err);
+            return;
+        }
+
+        if (payload?.segment) {
+            const index = payload.segment.index ?? payload.segment.sequence ?? '未知';
+            logger.error(`片段 ${index} 解析失败`, err);
+        } else {
+            logger.error('下载过程中捕获异常', err);
+        }
+    }
+
+    async _handleCompleted(result) {
+        if (this.finished) {
+            return;
+        }
+
+        const durationSeconds = (Date.now() - this.taskStart) / 1000;
+        let fileSize = 0;
+
+        try {
+            const stats = await fsp.stat(this.targetFile);
+            fileSize = stats.size;
+        } catch (error) {
+            logger.warn('无法获取文件大小', error);
+        }
+
+        const status = this.controller?.getStatus?.() || { total: 0, completed: 0, failed: 0 };
+        const snapshot = this.metrics?.snapshot?.() || null;
+        this.statusMessage = '✅ 下载完成';
+        this._emitProgress(100, this.statusMessage, this._composeMetrics(snapshot, status));
+
+        logger.info('========== 下载完成 ==========');
+        logger.info(`文件: ${this.targetFile}`);
+        if (result && typeof result.total === 'number') {
+            const failed = result.failed || 0;
+            logger.info(`片段统计: 完成 ${result.total - failed}/${result.total}，失败 ${failed}`);
+        }
+        if (fileSize > 0) {
+            logger.info(`大小: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+        }
+        logger.info(`耗时: ${durationSeconds.toFixed(2)} 秒`);
+        logger.runtime(`✅ 完成: ${path.basename(this.targetFile)}`);
+
+        logger.download({
+            url: this.sourceUrl,
+            filename: path.basename(this.targetFile),
+            status: 'success',
+            fileSize,
+            duration: `${durationSeconds.toFixed(2)}s`
+        });
+
+        this._resolve(true);
+    }
+
+    _handleStopped(reason) {
+        if (this.finished || this.canceled) {
+            return;
+        }
+        logger.warn(`管线提前停止: ${reason || '未知原因'}`);
+    }
+
+    _emitProgress(percent, message, metrics) {
+        if (this.progressCallback) {
+            this.progressCallback(percent, message, metrics);
+        }
+    }
+
+    _composeMetrics(snapshot, status) {
+        const base = snapshot || { speed: { instant: 0, average: 0 }, downloadedBytes: 0, elapsedSeconds: 0 };
+        const elapsed = base.elapsedSeconds || (this.taskStart ? (Date.now() - this.taskStart) / 1000 : 0);
+
         return {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Pragma': 'no-cache',
-            'Referer': referer,
-            'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-            'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': '"Windows"',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'cross-site'
+            instantSpeed: base.speed?.instant || 0,
+            averageSpeed: base.speed?.average || 0,
+            downloadedBytes: base.downloadedBytes || 0,
+            elapsedSeconds: elapsed,
+            memoryBytes: this._readMemoryUsage(),
+            completedSegments: status.completed || 0,
+            failedSegments: status.failed || 0,
+            totalSegments: status.total || 0
         };
     }
 
-    /**
-     * 获取Referer
-     */
-    getReferer(url) {
+    _readMemoryUsage() {
         try {
-            const urlObj = new URL(url);
-            return `${urlObj.protocol}//${urlObj.host}/`;
+            const usage = process.memoryUsage?.();
+            return usage?.rss || 0;
         } catch {
-            return url;
+            return 0;
         }
     }
 
-    /**
-     * 获取错误信息
-     */
-    getErrorMessage(error) {
-        if (error.response) {
-            return `HTTP ${error.response.status}`;
-        } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-            return 'timeout';
-        } else if (error.code === 'ENOTFOUND') {
-            return 'dns error';
+    _normalizeOutput(target) {
+        if (!target || typeof target !== 'string') {
+            throw new Error('输出路径无效');
+        }
+
+        const directory = path.dirname(target);
+        const base = path.basename(target, path.extname(target));
+        return path.join(directory, `${base}.mp4`);
+    }
+
+    _resolve(result) {
+        if (this.finished) {
+            return;
+        }
+        this.finished = true;
+        if (this.resolvePromise) {
+            this.resolvePromise(result);
+        }
+        this._cleanup();
+    }
+
+    _reject(error) {
+        if (this.finished) {
+            return;
+        }
+        this.finished = true;
+        if (this.rejectPromise) {
+            this.rejectPromise(error);
         } else {
-            return error.message || 'unknown';
+            throw error;
         }
+        this._cleanup();
     }
 
-    /**
-     * 更新进度
-     */
-    updateProgress(percent, message) {
-        if (this.progressCallback) {
-            this.progressCallback(percent, message);
+    _cleanup() {
+        if (this.metrics && this.metricsListener) {
+            this.metrics.off('update', this.metricsListener);
         }
-    }
 
-    /**
-     * 延迟
-     */
-    sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
+        if (this.controller) {
+            if (this.stateListener) this.controller.off('state', this.stateListener);
+            if (this.retryListener) this.controller.off('retry', this.retryListener);
+            if (this.segmentFailedListener) this.controller.off('segment-failed', this.segmentFailedListener);
+            if (this.errorListener) this.controller.off('error', this.errorListener);
+            if (this.completedListener) this.controller.off('completed', this.completedListener);
+            if (this.stoppedListener) this.controller.off('stopped', this.stoppedListener);
+        }
 
-    /**
-     * 取消下载
-     */
-    cancel() {
-        this.isCanceled = true;
-        logger.warn('下载已取消');
-        logger.runtime('用户取消下载');
+        this.metricsListener = null;
+        this.stateListener = null;
+        this.retryListener = null;
+        this.segmentFailedListener = null;
+        this.errorListener = null;
+        this.completedListener = null;
+        this.stoppedListener = null;
+
+        this.controller = null;
+        this.metrics = null;
+        this.progressCallback = null;
+        this.resolvePromise = null;
+        this.rejectPromise = null;
+        this.inProgress = false;
     }
 }
 

@@ -2,8 +2,6 @@ name: Build & Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -14,98 +12,173 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+
       - name: Install dependencies
         run: npm install
+
       - name: Build Windows
         run: npm run build:win
+
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
           path: release/*.exe
 
-  build-android:
+  build-linux:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install dependencies (Android)
-        run: |
-          cd android
-          npm install
-      - name: Build Android Web
-        run: |
-          cd android
-          npm run build
-      - name: Sync Capacitor
-        run: |
-          cd android
-          npx cap sync android
-      - name: Fix gradlew permission
-        run: chmod +x android/android/gradlew
-      - name: Build APK
-        run: |
-          cd android/android
-          ./gradlew assembleDebug
-      - name: Rename APK
-        run: |
-          mv android/android/app/build/outputs/apk/debug/app-debug.apk android/android/app/build/outputs/apk/debug/M3U8-Downloader-v6.0.1.apk
-      - name: Upload Android Artifact
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Linux
+        run: npm run build:linux
+
+      - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-release
-          path: android/android/app/build/outputs/apk/debug/*.apk
+          name: linux-release
+          path: |
+            release/*.AppImage
+            release/*.deb
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build macOS
+        run: npm run build:mac
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: |
+            release/*.dmg
+            release/*.zip
 
   release:
-    needs: [build-windows, build-android]
+    needs: [build-windows, build-linux, build-mac]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from package.json
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: tag_check
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag (if not exists)
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
       - name: Download Windows Artifact
         uses: actions/download-artifact@v4
         with:
           name: windows-release
           path: dist/windows
-      - name: Download Android Artifact
+
+      - name: Download Linux Artifact
         uses: actions/download-artifact@v4
         with:
-          name: android-release
-          path: dist/android
-      - name: Get version
-        id: version
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-      - name: Create Release
+          name: linux-release
+          path: dist/linux
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+          path: dist/macos
+
+      - name: List artifacts
+        run: |
+          echo "=== Windows ==="
+          ls -la dist/windows/ || echo "No Windows files"
+          echo "=== Linux ==="
+          ls -la dist/linux/ || echo "No Linux files"
+          echo "=== macOS ==="
+          ls -la dist/macos/ || echo "No macOS files"
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: M3U8下载器 v${{ steps.version.outputs.version }}
           body: |
-            ## 📦 下载
-            - **Windows**: M3U8下载器-${{ steps.version.outputs.version }}-Windows.exe
-            - **Android**: M3U8-Downloader-v${{ steps.version.outputs.version }}.apk
-            
-            ## ✨ 更新内容
-            - 版本更新至 v${{ steps.version.outputs.version }}
+            ## M3U8 视频下载器 v${{ steps.version.outputs.version }}
+
+            跨平台 M3U8/HLS 视频下载工具，自研高速管线，无需 FFmpeg。
+
+            ### 📦 下载
+
+            | 平台 | 文件 |
+            |------|------|
+            | Windows | M3U8下载器-${{ steps.version.outputs.version }}-Windows.exe |
+            | Linux (AppImage) | M3U8下载器-${{ steps.version.outputs.version }}-Linux.AppImage |
+            | Linux (Deb) | M3U8下载器-${{ steps.version.outputs.version }}-Linux.deb |
+            | macOS (DMG) | M3U8下载器-${{ steps.version.outputs.version }}-macOS.dmg |
+
+            ### ✨ 主要特性
+            - 自研 HLS → MP4 管线，mux.js 转封装
+            - AES-128 自动解密，片段乱序重排
+            - 实时速度、内存、片段进度监控
+            - Context Isolation 安全架构
+
+            ---
+            Copyright (c) 2026 MissChina
           files: |
             dist/windows/*.exe
-            dist/android/*.apk
+            dist/linux/*.AppImage
+            dist/linux/*.deb
+            dist/macos/*.dmg
+            dist/macos/*.zip
           draft: false
           prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
