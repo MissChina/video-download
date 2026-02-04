@@ -17,7 +17,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm install
@@ -31,91 +30,60 @@ jobs:
           name: windows-release
           path: release/*.exe
 
-  build-linux:
+  build-android:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build Linux
-        run: npm run build:linux
-
-      - name: Upload Linux Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-release
-          path: |
-            release/*.AppImage
-            release/*.deb
-
-  build-mac:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+          distribution: 'temurin'
+          java-version: '17'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install dependencies (Android)
+        working-directory: android
         run: npm install
 
-      - name: Build macOS
-        run: npm run build:mac
+      - name: Build Android Web
+        working-directory: android
+        run: npm run build
 
-      - name: Upload macOS Artifact
+      - name: Sync Capacitor
+        working-directory: android
+        run: npx cap sync android
+
+      - name: Fix gradlew permission
+        run: chmod +x android/android/gradlew
+
+      - name: Build APK
+        working-directory: android/android
+        run: ./gradlew assembleDebug
+
+      - name: Upload Android Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-release
-          path: |
-            release/*.dmg
-            release/*.zip
+          name: android-release
+          path: android/android/app/build/outputs/apk/debug/app-debug.apk
 
   release:
-    needs: [build-windows, build-linux, build-mac]
+    needs: [build-windows, build-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Get version from package.json
+      - name: Get version
         id: version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: Check if tag exists
-        id: tag_check
-        run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create and push tag (if not exists)
-        if: steps.tag_check.outputs.exists == 'false'
-        run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
 
       - name: Download Windows Artifact
         uses: actions/download-artifact@v4
@@ -123,26 +91,15 @@ jobs:
           name: windows-release
           path: dist/windows
 
-      - name: Download Linux Artifact
+      - name: Download Android Artifact
         uses: actions/download-artifact@v4
         with:
-          name: linux-release
-          path: dist/linux
+          name: android-release
+          path: dist/android
 
-      - name: Download macOS Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-release
-          path: dist/macos
-
-      - name: List artifacts
+      - name: Rename artifacts
         run: |
-          echo "=== Windows ==="
-          ls -la dist/windows/ || echo "No Windows files"
-          echo "=== Linux ==="
-          ls -la dist/linux/ || echo "No Linux files"
-          echo "=== macOS ==="
-          ls -la dist/macos/ || echo "No macOS files"
+          mv dist/android/app-debug.apk "dist/android/M3U8-Downloader-v${{ steps.version.outputs.version }}.apk"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -159,9 +116,7 @@ jobs:
             | 平台 | 文件 |
             |------|------|
             | Windows | M3U8下载器-${{ steps.version.outputs.version }}-Windows.exe |
-            | Linux (AppImage) | M3U8下载器-${{ steps.version.outputs.version }}-Linux.AppImage |
-            | Linux (Deb) | M3U8下载器-${{ steps.version.outputs.version }}-Linux.deb |
-            | macOS (DMG) | M3U8下载器-${{ steps.version.outputs.version }}-macOS.dmg |
+            | Android | M3U8-Downloader-v${{ steps.version.outputs.version }}.apk |
 
             ### ✨ 主要特性
             - 自研 HLS → MP4 管线，mux.js 转封装
@@ -173,10 +128,7 @@ jobs:
             Copyright (c) 2026 MissChina
           files: |
             dist/windows/*.exe
-            dist/linux/*.AppImage
-            dist/linux/*.deb
-            dist/macos/*.dmg
-            dist/macos/*.zip
+            dist/android/*.apk
           draft: false
           prerelease: false
           make_latest: true

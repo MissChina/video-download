@@ -5,19 +5,18 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build:win": "electron-builder --win --x64",
-    "build:linux": "electron-builder --linux",
-    "build:mac": "electron-builder --mac",
-    "build": "electron-builder --win --linux --mac"
+    "build:win": "electron-builder --win --x64"
   },
   "keywords": [
     "m3u8",
     "downloader",
     "video",
-    "hls",
-    "cross-platform"
+    "hls"
   ],
-  "author": "MissChina",
+  "author": {
+    "name": "MissChina",
+    "email": "misschina@users.noreply.github.com"
+  },
   "license": "MIT",
   "devDependencies": {
     "electron": "^28.0.0",
@@ -51,50 +50,19 @@
       "!**/node_modules/**/README*",
       "!**/.git*",
       "!**/test/**",
-      "!**/tests/**",
-      "!**/*.test.js",
-      "!**/*.spec.js"
+      "!**/tests/**"
     ],
     "compression": "maximum",
-    "removePackageScripts": true,
     "asar": true,
     "win": {
       "target": [
         {
           "target": "portable",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "artifactName": "${productName}-${version}-Windows.${ext}",
       "requestedExecutionLevel": "asInvoker"
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Utility",
-      "artifactName": "${productName}-${version}-Linux.${ext}"
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "category": "public.app-category.utilities",
-      "artifactName": "${productName}-${version}-macOS.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "perMachine": false,
-      "allowElevation": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "M3U8下载器",
-      "language": "2052"
     }
   }
 }
