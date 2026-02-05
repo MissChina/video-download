@@ -8,7 +8,6 @@
 </head>
 <body>
     <div class="app">
-        <!-- 顶部栏 -->
         <header class="header">
             <div class="header-left">
                 <span class="logo">🎬</span>
@@ -17,47 +16,84 @@
             <span class="version" id="version-label">v0.0.0</span>
         </header>
 
-        <!-- 主内容区 -->
-        <main class="main">
-            <!-- 左侧：下载表单 -->
-            <section class="panel panel-form">
-                <div class="form-group">
-                    <label>视频链接</label>
-                    <div class="input-row">
-                        <input type="text" id="url-input" placeholder="粘贴 M3U8 地址...">
-                        <button class="btn btn-sm" id="paste-btn">粘贴</button>
-                        <button class="btn btn-sm" id="clear-btn">清空</button>
-                    </div>
-                </div>
+        <nav class="tabs">
+            <button class="tab active" data-tab="download">下载</button>
+            <button class="tab" data-tab="settings">设置</button>
+            <button class="tab" data-tab="logs">日志</button>
+            <button class="tab" data-tab="about">关于</button>
+        </nav>
 
-                <div class="form-row">
-                    <div class="form-group flex-2">
-                        <label>保存路径</label>
+        <!-- 下载页 -->
+        <main class="content" id="tab-download">
+            <div class="main-grid">
+                <section class="panel">
+                    <div class="form-group">
+                        <label>视频链接</label>
                         <div class="input-row">
-                            <input type="text" id="save-path" readonly>
-                            <button class="btn btn-sm" id="browse-btn">浏览</button>
+                            <input type="text" id="url-input" placeholder="粘贴 M3U8 地址...">
+                            <button class="btn" id="paste-btn">粘贴</button>
+                            <button class="btn" id="clear-btn">清空</button>
                         </div>
                     </div>
-                    <div class="form-group flex-1">
-                        <label>文件名</label>
-                        <div class="input-row">
-                            <input type="text" id="filename" value="video">
-                            <span class="suffix">.mp4</span>
+                    <div class="form-row">
+                        <div class="form-group flex-2">
+                            <label>保存路径</label>
+                            <div class="input-row">
+                                <input type="text" id="save-path" readonly>
+                                <button class="btn" id="browse-btn">浏览</button>
+                            </div>
+                        </div>
+                        <div class="form-group flex-1">
+                            <label>文件名</label>
+                            <div class="input-row">
+                                <input type="text" id="filename" value="video">
+                                <span class="suffix">.mp4</span>
+                            </div>
                         </div>
                     </div>
-                </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>并发数</label>
+                            <div class="thread-control">
+                                <button class="btn-counter" id="decrease-btn">-</button>
+                                <span class="thread-value" id="thread-count">16</span>
+                                <button class="btn-counter" id="increase-btn">+</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="action-row">
+                        <button class="btn btn-primary" id="start-btn">开始下载</button>
+                        <button class="btn btn-danger" id="stop-btn" disabled>停止</button>
+                    </div>
+                </section>
 
+                <section class="panel">
+                    <div class="status-block">
+                        <div class="status-row"><span>下载进度</span><span class="badge" id="status-text">就绪</span></div>
+                        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+                        <span class="progress-text" id="progress-percent">0%</span>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat"><span class="stat-label">速度</span><span class="stat-value" id="stat-speed">0 MB/s</span></div>
+                        <div class="stat"><span class="stat-label">已下载</span><span class="stat-value" id="stat-downloaded">0 MB</span></div>
+                        <div class="stat"><span class="stat-label">片段</span><span class="stat-value" id="stat-segments">0/0</span></div>
+                        <div class="stat"><span class="stat-label">内存</span><span class="stat-value" id="stat-memory">0 MB</span></div>
+                    </div>
+                    <div class="log-section">
+                        <div class="log-head"><span>日志</span><button class="btn btn-xs" id="clear-log-btn">清除</button></div>
+                        <div class="log-box" id="log-box"></div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- 设置页 -->
+        <main class="content hidden" id="tab-settings">
+            <section class="panel">
+                <h3>下载参数</h3>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>并发线程</label>
-                        <div class="thread-control">
-                            <button class="btn-counter" id="decrease-btn">−</button>
-                            <span class="thread-value" id="thread-count">16</span>
-                            <button class="btn-counter" id="increase-btn">+</button>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>超时(秒)</label>
+                        <label>连接超时 (秒)</label>
                         <input type="number" id="timeout" value="30" min="5" max="300" class="input-sm">
                     </div>
                     <div class="form-group">
@@ -65,72 +101,52 @@
                         <input type="number" id="retry" value="3" min="0" max="10" class="input-sm">
                     </div>
                 </div>
-
-                <div class="action-row">
-                    <button class="btn btn-primary btn-lg" id="start-btn">开始下载</button>
-                    <button class="btn btn-danger btn-lg" id="stop-btn" disabled>停止</button>
-                </div>
-            </section>
-
-            <!-- 右侧：状态面板 -->
-            <section class="panel panel-status">
-                <!-- 进度 -->
-                <div class="status-block">
-                    <div class="status-header">
-                        <span class="status-title">下载进度</span>
-                        <span class="status-badge" id="status-text">就绪</span>
-                    </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progress-fill"></div>
-                    </div>
-                    <span class="progress-text" id="progress-percent">0%</span>
-                </div>
-
-                <!-- 统计 -->
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">速度</span>
-                        <span class="stat-value" id="stat-speed">0 MB/s</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">已下载</span>
-                        <span class="stat-value" id="stat-downloaded">0 MB</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">片段</span>
-                        <span class="stat-value" id="stat-segments">0/0</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">内存</span>
-                        <span class="stat-value" id="stat-memory">0 MB</span>
-                    </div>
-                </div>
-
-                <!-- 日志 -->
-                <div class="log-section">
-                    <div class="log-header">
-                        <span>运行日志</span>
-                        <button class="btn btn-xs" id="clear-log-btn">清除</button>
-                    </div>
-                    <div class="log-box" id="log-box"></div>
-                </div>
+                <button class="btn btn-primary" id="save-settings-btn">保存设置</button>
             </section>
         </main>
 
-        <!-- 底部状态栏 -->
+        <!-- 日志页 -->
+        <main class="content hidden" id="tab-logs">
+            <section class="panel">
+                <h3>系统日志</h3>
+                <p class="hint">查看应用运行日志，用于排查问题。</p>
+                <div class="log-actions">
+                    <button class="btn" id="refresh-logs-btn">刷新日志</button>
+                    <button class="btn" id="open-log-dir-btn">打开日志目录</button>
+                </div>
+                <div class="log-viewer"><pre id="log-content">点击"刷新日志"加载...</pre></div>
+            </section>
+        </main>
+
+        <!-- 关于页 -->
+        <main class="content hidden" id="tab-about">
+            <section class="panel about-panel">
+                <h2>M3U8 视频下载器</h2>
+                <p class="version-text" id="about-version">v0.0.0</p>
+                <p class="desc">跨平台 HLS 下载工具，自研转封装管线，无需 FFmpeg。</p>
+                <h3>功能特性</h3>
+                <ul>
+                    <li>自研 HLS to MP4 管线，mux.js 转封装</li>
+                    <li>AES-128 自动解密</li>
+                    <li>片段乱序重排，失败自动重试</li>
+                    <li>实时速度、内存、进度监控</li>
+                </ul>
+                <h3>技术栈</h3>
+                <ul>
+                    <li>Electron + Node.js</li>
+                    <li>mux.js 转封装引擎</li>
+                    <li>Context Isolation 安全架构</li>
+                </ul>
+                <p class="copyright">Copyright (c) 2026 MissChina</p>
+            </section>
+        </main>
+
         <footer class="footer">
             <span id="footer-status">就绪</span>
-            <span>© 2026 MissChina</span>
+            <span>MissChina</span>
         </footer>
     </div>
-
-    <!-- 隐藏元素（兼容旧代码） -->
-    <div style="display:none;">
-        <span id="stat-average"></span>
-        <span id="stat-runtime"></span>
-        <span id="about-version"></span>
-    </div>
-
+    <div style="display:none"><span id="stat-average"></span><span id="stat-runtime"></span></div>
     <script src="renderer.js"></script>
 </body>
 </html>
